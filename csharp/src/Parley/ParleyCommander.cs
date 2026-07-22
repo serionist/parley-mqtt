@@ -134,11 +134,20 @@ namespace Parley
                 cmd.RequestBytes = MessageCodec.Serialize(new Envelope { V = MessageCodec.Version, T = MessageTypes.Request, Id = id, P = payload });
                 _inflight[id] = cmd;
 
-                Publish(_topics.Request, cmd.RequestBytes);
+                // CR1 (design.md — "Synchronous delivery is legal; publish comes last"): schedule the
+                // request-retry and sign-of-life timers BEFORE the initial publish. The reentrant Gate does
+                // NOT protect a synchronous subscribe callback on this same thread — it re-enters mid-transition
+                // (Monitor is reentrant), so an hb/res delivered from inside Publish must find real timers to
+                // cancel/reschedule rather than orphaning ones scheduled after Publish returns.
                 cmd.RequestRetryTimer = _runtime.Schedule(cmd.Options.RequestRetryInterval, () => OnRequestRetry(cmd));
                 cmd.SignOfLifeTimer = _runtime.Schedule(cmd.Options.NoAckTimeout, () => OnSignOfLifeExpiry(cmd));
+                Publish(_topics.Request, cmd.RequestBytes);
 
-                if (cancellationToken.CanBeCanceled)
+                // Register cancellation AFTER the publish (so an already-cancelled token fires RequestCancel
+                // in wire order req-then-cnl), and only if the command is still in flight — a synchronous
+                // reply during the publish above may already have completed and torn it down, leaving no
+                // registration to hang. (Register fires synchronously if the token is already cancelled.)
+                if (cancellationToken.CanBeCanceled && _inflight.ContainsKey(id))
                 {
                     cmd.CancellationRegistration = cancellationToken.Register(
                         static state =>
@@ -172,8 +181,12 @@ namespace Parley
                 }
 
                 cmd.CancelBytes = MessageCodec.Serialize(new Envelope { V = MessageCodec.Version, T = MessageTypes.Cancel, Id = id });
-                Publish(_topics.Request, cmd.CancelBytes);
+                // CR1 (design.md): schedule the cancel-retry timer BEFORE publishing the cnl. A synchronous
+                // subscribe callback can deliver the $cancelled res from inside this publish and tear the command
+                // down; the re-entrant Teardown must find the timer to dispose it, otherwise it orphans a
+                // self-rearming timer that re-publishes cnl forever (a permanent cnl-storm leak).
                 cmd.CancelRetryTimer = _runtime.Schedule(cmd.Options.CancelRetryInterval, () => OnCancelRetry(cmd));
+                Publish(_topics.Request, cmd.CancelBytes);
             }
         }
 

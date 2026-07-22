@@ -40,6 +40,9 @@ export class ParleyTimer {
   readonly #runtime: ParleyRuntime;
   readonly #clock: ParleyClock;
   readonly #callback: () => void;
+  // AB4: one bound fire reference per timer, reused across every (re)schedule, instead of allocating
+  // a fresh closure each time the timer is armed.
+  readonly #fireBound: () => void = () => this.#fire();
   #handle: ParleyTimerHandle;
   #disposed = false;
 
@@ -48,7 +51,7 @@ export class ParleyTimer {
     this.#clock = clock;
     this.#callback = callback;
     runtime._increment();
-    this.#handle = clock.schedule(() => this.#fire(), delayMs);
+    this.#handle = clock.schedule(this.#fireBound, delayMs);
   }
 
   #fire(): void {
@@ -64,7 +67,7 @@ export class ParleyTimer {
       return;
     }
     this.#clock.cancel(this.#handle);
-    this.#handle = this.#clock.schedule(() => this.#fire(), delayMs);
+    this.#handle = this.#clock.schedule(this.#fireBound, delayMs);
   }
 
   /** Stops and releases the timer. Idempotent. */

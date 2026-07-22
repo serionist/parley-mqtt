@@ -30,7 +30,7 @@
   },
   "scripts": {
     "build": "tsup",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.src.json",
     "lint": "eslint .",
     "test": "vitest run"
   },

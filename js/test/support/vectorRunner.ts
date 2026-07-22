@@ -92,6 +92,7 @@ async function runCommander(
 
   for (const step of steps) {
     enforceSingleDirective(name, step);
+    assertValidAt(name, step);
     assertNonDecreasing(name, step.at, lastAt);
     lastAt = step.at;
 
@@ -162,6 +163,7 @@ async function runHandler(
 
   for (const step of steps) {
     enforceSingleDirective(name, step);
+    assertValidAt(name, step);
     assertNonDecreasing(name, step.at, lastAt);
     lastAt = step.at;
 
@@ -198,6 +200,14 @@ function enforceSingleDirective(name: string, step: Step): void {
     throw new Error(
       `Vector '${name}': each step must carry exactly one directive, found ${String(count)}: ${JSON.stringify(step)}`,
     );
+  }
+}
+
+function assertValidAt(name: string, step: Step): void {
+  // TQ2: every step must carry a finite numeric `at` — mirrors the C# runner, which throws rather
+  // than silently treating a missing/NaN time as 0 (which would mis-order the whole vector).
+  if (typeof step.at !== 'number' || !Number.isFinite(step.at)) {
+    throw new Error(`Vector '${name}': step 'at' must be a finite number, got ${JSON.stringify(step.at)}: ${JSON.stringify(step)}`);
   }
 }
 

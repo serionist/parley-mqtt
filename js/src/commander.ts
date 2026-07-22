@@ -31,8 +31,14 @@ import { ParleyRuntime, type ParleyTimer } from './runtime';
 import { TombstoneTable } from './tombstones';
 import type { ParleyAbortSignal } from './execution';
 
-/** Optional per-commander codec hooks. Both default to a raw pass-through. */
-export interface ParleyCommanderCodec<TResult, TProgress> {
+/** Optional per-commander codec hooks. All default to a raw pass-through. */
+export interface ParleyCommanderCodec<TRequest, TResult, TProgress> {
+  /**
+   * Encodes/validates a request payload before it is serialized onto the wire. Throwing surfaces
+   * synchronously out of {@link ParleyCommander.execute} as a caller-visible programming error
+   * (bad codec/payload) — no command state is created. Default: pass-through.
+   */
+  encodeRequest?(value: TRequest): unknown;
   /**
    * Decodes/validates a success `res` payload. Throwing yields `$decodeError` (a `rak` is still
    * published, per C4). Default: the raw JSON value is the result.
@@ -43,8 +49,8 @@ export interface ParleyCommanderCodec<TResult, TProgress> {
 }
 
 /** Construction-time seams and codec for a {@link ParleyCommander}. */
-export interface ParleyCommanderOptions<TResult, TProgress> {
-  codec?: ParleyCommanderCodec<TResult, TProgress>;
+export interface ParleyCommanderOptions<TRequest, TResult, TProgress> {
+  codec?: ParleyCommanderCodec<TRequest, TResult, TProgress>;
   idGenerator?: ParleyIdGenerator;
   clock?: ParleyClock;
 }
@@ -101,7 +107,7 @@ export class ParleyCommander<TRequest, TProgress, TResult, TError = string> {
   readonly #runtime: ParleyRuntime;
   readonly #tombstones: TombstoneTable;
   readonly #idGenerator: ParleyIdGenerator;
-  readonly #codec: ParleyCommanderCodec<TResult, TProgress> | undefined;
+  readonly #codec: ParleyCommanderCodec<TRequest, TResult, TProgress> | undefined;
   readonly #inflight = new Map<string, Command<TProgress, TResult, TError>>();
   readonly #onConnected = (): void => {
     if (this.#disposed) {
@@ -115,7 +121,7 @@ export class ParleyCommander<TRequest, TProgress, TResult, TError = string> {
     adapter: ParleyConnectionAdapter,
     topics: ParleyTopics,
     config: ParleyConfig = {},
-    options: ParleyCommanderOptions<TResult, TProgress> = {},
+    options: ParleyCommanderOptions<TRequest, TResult, TProgress> = {},
   ) {
     this.#adapter = adapter;
     this.#topics = topics;
@@ -145,7 +151,9 @@ export class ParleyCommander<TRequest, TProgress, TResult, TError = string> {
    * Executes one command and awaits its single terminal outcome (protocol.md C1–C5). Aborting
    * `options.signal` triggers a wire-level `cnl` (C7); the returned result is still whatever the
    * command actually reaches (a genuine result may win the race). Never rejects for an expected
-   * outcome. Throws synchronously on misuse (disposed instance, invalid/colliding id).
+   * outcome. Throws synchronously on misuse (disposed instance, invalid/colliding id) or when a
+   * configured `codec.encodeRequest` throws (a caller-visible programming error, fail-fast like the
+   * config/id validation — no command state is created).
    */
   execute(
     request: TRequest,
@@ -163,24 +171,31 @@ export class ParleyCommander<TRequest, TProgress, TResult, TError = string> {
       throw new Error(`Command id '${id}' collides with existing state.`);
     }
 
+    // AB2: encode the request up front. A throwing encodeRequest is a caller-visible programming
+    // error — let it propagate synchronously before ANY per-command state (inflight, timers, signal
+    // listener) exists, so a failed encode leaves nothing to unwind. Consistent with fail-fast config.
+    const requestBytes = serialize({
+      v: PROTOCOL_VERSION,
+      t: MessageType.Request,
+      id,
+      p: toPayload(this.#encodeRequest(request)),
+    });
+
     const deferred = createDeferred<ParleyResult<TResult, TError>>();
     const cmd: Command<TProgress, TResult, TError> = {
       id,
       deferred,
       onProgress: options?.onProgress,
       options: resolveCallOptions(this.#config, options),
-      requestBytes: serialize({
-        v: PROTOCOL_VERSION,
-        t: MessageType.Request,
-        id,
-        p: toPayload(request),
-      }),
+      requestBytes,
       state: 'sending',
       cancelling: false,
     };
     this.#inflight.set(id, cmd);
 
-    this.#publish(this.#topics.request, cmd.requestBytes);
+    // design.md — "Synchronous delivery is legal; publish comes last": schedule the request-retry and
+    // sign-of-life timers BEFORE the initial publish, so a synchronous-delivery adapter that re-enters
+    // (e.g. an `hb`/`res` delivered from inside publish) finds real timers to cancel/reschedule.
     cmd.requestRetryTimer = this.#runtime.schedule(cmd.options.requestRetryInterval, () =>
       this.#onRequestRetry(cmd),
     );
@@ -188,8 +203,13 @@ export class ParleyCommander<TRequest, TProgress, TResult, TError = string> {
       this.#onSignOfLifeExpiry(cmd),
     );
 
+    this.#publish(this.#topics.request, cmd.requestBytes);
+
+    // Signal wiring stays AFTER the initial publish so the wire order is req-then-cnl for an
+    // already-aborted signal. Guard on still-in-flight: a synchronous reply during the publish above
+    // may already have completed and torn the command down (no listener to attach then).
     const signal = options?.signal;
-    if (signal) {
+    if (signal && this.#inflight.has(id)) {
       if (signal.aborted) {
         this.#requestCancel(id);
       } else {
@@ -217,10 +237,14 @@ export class ParleyCommander<TRequest, TProgress, TResult, TError = string> {
     }
 
     cmd.cancelBytes = serialize({ v: PROTOCOL_VERSION, t: MessageType.Cancel, id });
-    this.#publish(this.#topics.request, cmd.cancelBytes);
+    // design.md — schedule the cancel-retry timer BEFORE publishing the `cnl`. A synchronous-delivery
+    // adapter can deliver the `$cancelled` `res` from inside this publish and tear the command down;
+    // the re-entrant teardown must find the timer to cancel it, otherwise it orphans a self-rearming
+    // timer that re-publishes `cnl` forever (a permanent cnl-storm leak).
     cmd.cancelRetryTimer = this.#runtime.schedule(cmd.options.cancelRetryInterval, () =>
       this.#onCancelRetry(cmd),
     );
+    this.#publish(this.#topics.request, cmd.cancelBytes);
   }
 
   #onRequestRetry(cmd: Command<TProgress, TResult, TError>): void {
@@ -378,6 +402,13 @@ export class ParleyCommander<TRequest, TProgress, TResult, TError = string> {
 
     // The sliding sign-of-life timer restarts on every sign of life (C2/C3).
     cmd.signOfLifeTimer?.reschedule(cmd.options.staleTimeout);
+  }
+
+  #encodeRequest(value: TRequest): unknown {
+    if (this.#codec?.encodeRequest) {
+      return this.#codec.encodeRequest(value);
+    }
+    return value;
   }
 
   #decodeResult(rawPayload: unknown): TResult {

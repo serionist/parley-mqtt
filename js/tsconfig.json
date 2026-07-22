@@ -1,25 +1,11 @@
 {
+  // The default program used by the editor, typescript-eslint's projectService, and the test-side
+  // typecheck. It covers src + test with the Node + DOM ambient types the vitest suites rely on
+  // (node:fs / node:url / AbortController). The stricter src-only floor lives in tsconfig.src.json.
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
     "lib": ["ES2020", "DOM"],
-    "types": ["node"],
-
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "forceConsistentCasingInFileNames": true,
-
-    "noEmit": true,
-    "ignoreDeprecations": "6.0",
-    "stripInternal": true,
-    "skipLibCheck": true,
-    "isolatedModules": true,
-    "verbatimModuleSyntax": true,
-    "resolveJsonModule": true
+    "types": ["node"]
   },
   "include": ["src", "test"]
 }

@@ -131,6 +131,114 @@ public sealed class DeepReviewRegressionTests
 
         handler.Dispose(); // idempotent
     }
+
+    [Fact]
+    public void Handler_SyncRakFromResPublish_CompletesWithoutOrphanedResultTimers()
+    {
+        // CR1 (design.md — "Synchronous delivery is legal; publish comes last"). A loopback adapter MAY
+        // deliver the rak synchronously from inside the res publish, re-entering on the SAME thread (the
+        // reentrant Gate is no protection). Before the fix, CompleteWithResult scheduled its result timers
+        // AFTER the publish, so that re-entrant rak → tombstone found no timers to dispose and the ones
+        // scheduled afterward orphaned into a self-rearming res storm.
+        var clock = new FakeTimeProvider();
+        var transport = new FakeTransport();
+        var config = new ParleyConfig
+        {
+            HeartbeatInterval = TimeSpan.FromSeconds(1),
+            ResultRetryInterval = TimeSpan.FromSeconds(2),
+            ResultRetryTimeout = TimeSpan.FromSeconds(30),
+            TombstoneTtl = TimeSpan.FromSeconds(5),
+        };
+        var handler = new VectorHandler(transport, Topics, config, clock);
+        transport.ClearOutbound();
+
+        transport.OnPublish = (topic, payload) =>
+        {
+            if (topic == "result" && TypeOf(payload) == "res")
+            {
+                transport.Deliver("request", Wire.ResultAck("A")); // rak arrives synchronously
+            }
+        };
+
+        transport.Deliver("request", Wire.Request("A")); // admit → executing (first hb on heartbeat topic)
+        Assert.Equal(1, handler.ExecutingCount);
+
+        // Complete resolves the parked handleCommand inline → CompleteWithResult schedules the result timers
+        // BEFORE publishing res → the synchronous rak re-enters and moves the command straight to a tombstone,
+        // finding and disposing those timers.
+        handler.Complete("A", "{}".ToElement());
+
+        Assert.Equal(0, handler.CommandCount);      // no lingering RESULT-CACHED entry
+        Assert.Equal(0, handler.ExecutingCount);    // execution slot released
+        Assert.Equal(1, handler.TombstoneCount);
+        Assert.Equal(1, handler.LiveTimerCount);    // only the tombstone TTL timer — result timers were disposed
+        Assert.Equal(1, transport.PublishCount("result", "res")); // exactly one res, no self-rearming storm
+
+        clock.Advance(TimeSpan.FromSeconds(61));     // drain the tombstone
+        Assert.Equal(0, handler.TombstoneCount);
+        Assert.Equal(0, handler.LiveTimerCount);     // back to steady state
+    }
+
+    [Fact]
+    public void Commander_SyncCancelledResFromCnlPublish_NoOrphanedCancelRetryTimer()
+    {
+        // CR1 — the permanent self-rearming leak variant. A loopback adapter delivers the $cancelled res
+        // synchronously from inside the cnl publish. Before the fix, RequestCancel scheduled the cancel-retry
+        // timer AFTER the publish, so the re-entrant teardown could not dispose it and it re-published cnl
+        // forever — state that could never drain.
+        var clock = new FakeTimeProvider();
+        var transport = new FakeTransport();
+        var generator = new ScriptedCommandIdGenerator();
+        var config = new ParleyConfig
+        {
+            RequestRetryInterval = TimeSpan.FromSeconds(2),
+            NoAckTimeout = TimeSpan.FromSeconds(100),
+            CancelRetryInterval = TimeSpan.FromSeconds(2),
+            TombstoneTtl = TimeSpan.FromSeconds(5),
+        };
+        var commander = new ParleyCommander<JsonElement, JsonElement, JsonElement, string>(
+            transport, Topics, config, VectorJsonContext.Default, generator, clock);
+        transport.ClearOutbound();
+
+        transport.OnPublish = (topic, payload) =>
+        {
+            if (topic == "request" && TypeOf(payload) == "cnl")
+            {
+                transport.Deliver("result", Wire.ResultError("A", ParleyErrorCodes.Cancelled));
+            }
+        };
+
+        generator.Enqueue("A");
+        using var cts = new CancellationTokenSource();
+        Task<ParleyResult<JsonElement, string>> task =
+            commander.ExecuteAsync(Json.Element("{}"), null, null, cts.Token);
+
+        cts.Cancel(); // → RequestCancel → publishes cnl → reaction delivers $cancelled synchronously → teardown
+
+        Assert.True(task.IsCompleted);
+        Assert.True(task.Result.IsError);
+        Assert.Equal(ParleyBuiltinError.Cancelled, task.Result.Error.Builtin);
+
+        // Exactly one cnl — the cancel-retry timer was scheduled BEFORE the publish, so the re-entrant
+        // teardown disposed it rather than orphaning a cnl storm.
+        Assert.Equal(1, transport.PublishCount("request", "cnl"));
+        Assert.Equal(0, commander.InflightCount);
+
+        transport.ClearOutbound();
+        clock.Advance(TimeSpan.FromSeconds(61));
+        Assert.Equal(0, commander.LiveTimerCount);   // no self-rearming timer left alive
+        Assert.Equal(0, commander.TombstoneCount);
+        Assert.Equal(0, transport.PublishCount("request", "cnl")); // no post-teardown cnl re-sends
+    }
+
+    /// <summary>Extracts the wire message-type (`t`) from a published payload, for the loopback reactions.</summary>
+    private static string TypeOf(ReadOnlyMemory<byte> payload)
+    {
+        using JsonDocument document = JsonDocument.Parse(payload);
+        return document.RootElement.TryGetProperty("t", out JsonElement type)
+            ? type.GetString() ?? string.Empty
+            : string.Empty;
+    }
 }
 
 /// <summary>A custom error type that serializes to a JSON number (not a string) — its outcome cannot be built.</summary>

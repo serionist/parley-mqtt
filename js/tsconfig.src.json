@@ -1,0 +1,13 @@
+{
+  // AB5: the src-only program that hardens the edge-engine floor. It carries NO `@types/node`
+  // (`types: []`) and NO DOM lib — only ES2020 + WebWorker globals (setTimeout/clearTimeout,
+  // TextEncoder/TextDecoder), which are the ambient surface every v1 target engine provides. If a
+  // core file ever reaches for a Node built-in (Buffer, process, …) or a browser-DOM-only API, this
+  // program fails to typecheck. The test/full program (tsconfig.json) keeps node + DOM types.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2020", "WebWorker"],
+    "types": []
+  },
+  "include": ["src"]
+}

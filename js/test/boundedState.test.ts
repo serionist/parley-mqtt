@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { ParleyCommander, ParleyTopics } from '../src/index';
+import { drainMicrotasks } from './support/drain';
 import { FakeTransport } from './support/fakeTransport';
 import { ScriptedIdGenerator } from './support/scriptedIdGenerator';
 import { VirtualClock } from './support/virtualClock';
@@ -10,12 +11,10 @@ const topics = (): ParleyTopics => new ParleyTopics('request', 'heartbeat', 'pro
 
 const CYCLES = 3000;
 
-// A single real-macrotask boundary drains the library's shallow await chain (handler dispatch adds
-// one microtask hop from outcome resolution to the res publish). Keep it light for the tight loop.
+// Microtask-only flush (TQ1): the handler dispatch adds one microtask hop from outcome resolution to
+// the res publish and no macrotask boundary; draining microtasks is sufficient and enforces that.
 function flush(): Promise<void> {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, 0);
-  });
+  return drainMicrotasks();
 }
 
 describe('bounded state (hard requirement — testing.md layer 1)', () => {
@@ -74,6 +73,7 @@ describe('bounded state (hard requirement — testing.md layer 1)', () => {
     expect(commander._inflightCount).toBe(0);
     expect(commander._tombstoneCount).toBe(0);
     expect(commander._liveTimerCount).toBe(0);
+    expect(clock.pendingCount).toBe(0); // TQ4: no timer left registered on the clock either
   });
 
   test('handler: sustained mixed load returns to steady state', async () => {
@@ -167,5 +167,6 @@ describe('bounded state (hard requirement — testing.md layer 1)', () => {
     expect(handler._executingCount).toBe(0);
     expect(handler._tombstoneCount).toBe(0);
     expect(handler._liveTimerCount).toBe(0);
+    expect(clock.pendingCount).toBe(0); // TQ4: no timer left registered on the clock either
   }, 60_000);
 });

@@ -27,12 +27,19 @@ internal sealed class OutboundAction
 internal sealed class FakeTransport : ParleyConnectionAdapter
 {
     private readonly Dictionary<string, Action<string, ReadOnlyMemory<byte>>> _handlers = new();
+    private bool _reacting;
 
     public List<OutboundAction> Outbound { get; } = new();
 
     /// <summary>When set, <see cref="Publish"/> throws — simulates a disconnected/disposed underlying client
     /// so tests can prove adapter faults never escape onto Parley-owned timer threads (CR4).</summary>
     public bool FailPublish { get; set; }
+
+    /// <summary>Optional synchronous-loopback hook (design.md — synchronous delivery is legal). When set, it
+    /// is invoked from INSIDE <see cref="Publish"/> (after the action is recorded) so a test can synchronously
+    /// deliver an inbound message, re-entering the library mid-transition on the SAME thread (the reentrant
+    /// Gate offers no protection). Re-entrant publishes from within the hook do not re-trigger it (single level).</summary>
+    public Action<string, ReadOnlyMemory<byte>>? OnPublish { get; set; }
 
     public override void Publish(string topic, ReadOnlyMemory<byte> payload)
     {
@@ -42,6 +49,20 @@ internal sealed class FakeTransport : ParleyConnectionAdapter
         }
 
         Outbound.Add(OutboundAction.Publish(topic, payload.ToArray()));
+
+        Action<string, ReadOnlyMemory<byte>>? reaction = OnPublish;
+        if (reaction is not null && !_reacting)
+        {
+            _reacting = true;
+            try
+            {
+                reaction(topic, payload);
+            }
+            finally
+            {
+                _reacting = false;
+            }
+        }
     }
 
     public override void Subscribe(string topic, Action<string, ReadOnlyMemory<byte>> handler)

@@ -244,9 +244,18 @@ export abstract class ParleyCommandHandler<TRequest, TProgress, TResult, TError 
       // Dispatch glue adds only microtask hops from here to the res publish (no macrotask/clock).
       outcome = await this.handleCommand(cmd.request, cmd.execution);
     } catch {
-      // A thrown handler aborts the command so the slot is freed and state stays bounded. No result
-      // is produced; the commander ends via its own timers.
-      if (!this.#disposed) {
+      if (this.#disposed) {
+        return;
+      }
+      // HC1 (design.md — "Thrown cancellation maps to $cancelled"): a handler that unwinds via a
+      // cancellation throw (the `AbortError`/rejection idiom) WHILE its execution signal is aborted
+      // yields the same `$cancelled` result as a returned cancellation — cached and retried per H5
+      // (mirrors C#'s OperationCanceledException arm). Only a NON-cancellation throw aborts silently.
+      if (cmd.abort.signal.aborted) {
+        this.#completeWithResult(cmd, this.#builtinErrorBytes(cmd.id, ParleyBuiltinError.Cancelled), true);
+      } else {
+        // A thrown handler aborts the command so the slot is freed and state stays bounded. No result
+        // is produced; the commander ends via its own timers.
         this.#abortExecuting(cmd);
       }
       return;
@@ -281,15 +290,20 @@ export abstract class ParleyCommandHandler<TRequest, TProgress, TResult, TError 
 
     cmd.cachedResultBytes = resultBytes;
     cmd.state = 'result-cached';
-    this.#publish(this.#topics.result, resultBytes);
 
     // H5: retry the result until rak or resultRetryTimeout (measured from this first publication).
+    // design.md — "publish comes last": schedule BOTH result timers BEFORE the `res` publish. A
+    // synchronous-delivery adapter can deliver the `rak` from inside this publish and move the command
+    // to a tombstone; the re-entrant transition must find real timers to cancel, otherwise it orphans
+    // a self-rearming timer that re-publishes `res` forever.
     cmd.resultRetryTimer = this.#runtime.schedule(this.#config.resultRetryInterval, () =>
       this.#onResultRetry(cmd),
     );
     cmd.resultRetryTimeoutTimer = this.#runtime.schedule(this.#config.resultRetryTimeout, () =>
       this.#moveToTombstone(cmd),
     );
+
+    this.#publish(this.#topics.result, resultBytes);
 
     if (wasExecuting) {
       this.#executingCount--;

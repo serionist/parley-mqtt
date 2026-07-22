@@ -315,11 +315,16 @@ namespace Parley
 
             cmd.CachedResultBytes = resultBytes;
             cmd.State = HandlerState.ResultCached;
-            Publish(_topics.Result, resultBytes);
 
             // H5: retry the result until rak or resultRetryTimeout (measured from this first publication).
+            // CR1 (design.md — "publish comes last"): schedule BOTH result timers BEFORE the res publish. The
+            // reentrant Gate does not protect against a synchronous rak delivered on this thread from inside
+            // Publish — it re-enters and moves the command to a tombstone, which must find real timers to
+            // dispose. Scheduling them after Publish would orphan a self-rearming timer that re-publishes res.
             cmd.ResultRetryTimer = _runtime.Schedule(_config.ResultRetryInterval, () => OnResultRetry(cmd));
             cmd.ResultRetryTimeoutTimer = _runtime.Schedule(_config.ResultRetryTimeout, () => MoveToTombstone(cmd));
+
+            Publish(_topics.Result, resultBytes);
 
             if (wasExecuting)
             {

@@ -216,3 +216,21 @@ handler instances are disposable (detach subscriptions, complete in-flight calls
 idiom, not required of other languages.
 **Rejected:** silent-drop of undecodable results (hides integration bugs behind stale timeouts);
 surfacing structured error `p` in v1 (write side has no producer; revisit if demanded).
+
+## 2026-07-22 — Adjudications from the TypeScript deep review
+
+**(1) Publish comes last, in every language.** Synchronous-delivery adapters are legal, so all
+state mutation and timer scheduling completes before `adapter.publish`; the TS review found
+three inverted sites (one a permanent self-rearming timer leak on the cancel path) and the same
+structure exists in C# — both are patched and the rule is now a design.md contract.
+**(2) Thrown cancellation ≡ returned cancellation.** A handler unwinding via a cancellation
+throw with its signal aborted yields `$cancelled` (matches C#'s `OperationCanceledException`
+arm); only non-cancellation exceptions abort silently.
+**(3) Conformance runners must not tolerate macrotask-deferred publishes**: the drain between
+vector steps flushes microtasks only — zero real-timer boundaries.
+**(4) TypeScript pinned at 6.0.3 (waiver).** Latest-stable is the native 7.x compiler, but
+typescript-eslint's peer range (`<6.1.0`) and tsup's dts pipeline cannot consume it yet;
+revisit at each `update-deps` pass.
+**Rejected:** treating the reentrant C# lock as protection against synchronous re-entry (same
+thread re-enters mid-mutation); runner-level tolerance of one macrotask hop (would let a
+nonconformant dispatch pass).

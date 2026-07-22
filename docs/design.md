@@ -35,6 +35,21 @@ Cross-language contracts settled by the reference implementation:
 - **Adapter `subscribe` replaces.** `subscribe(topic, onMessage)` replaces any prior handler for
   that topic (one handler per topic) — the library re-subscribes on every connected signal
   without unsubscribing first; an appending adapter would multiply-deliver.
+- **Synchronous delivery is legal; publish comes last.** An adapter MAY deliver messages
+  synchronously from inside `publish` (in-process loopback). Implementations therefore complete
+  ALL state mutation and timer scheduling for a transition BEFORE invoking `adapter.publish` —
+  a re-entrant reply must find the transition already consistent.
+- **Thrown cancellation maps to `$cancelled`.** A handler that unwinds via a cancellation throw
+  while its execution signal is aborted (`OperationCanceledException`, `AbortError`, …) yields
+  the same `$cancelled` result as one that returns a cancelled outcome; only a non-cancellation
+  exception aborts silently.
+- **Codec hooks (optional, pass-through by default).** Commander: `encodeRequest`,
+  `decodeResult`, `decodeProgress`; handler: `decodeRequest`, `encodeResult`, `encodeProgress`.
+  A throwing `decodeResult` yields `$decodeError` (rak still sent); a throwing `decodeRequest`
+  silently drops the request; encode-side throws abort like a thrown handler. In statically
+  typed languages the codec is the type binding itself (C#: `JsonTypeInfo`); in JS it is the
+  optional validation seam. A codec may see "no payload" (absent/null `p`) — it should treat
+  that as its language's empty value.
 - **Commander in-flight is timer-bounded, not pool-bounded, in the managed languages.** Every
   call carries a guaranteed terminal timer, so in-flight state drains by construction; C++'s
   `MaxInFlight` pool is a static-allocation necessity, not a protocol cap.
@@ -121,7 +136,7 @@ asyncio-first; a wire-level `cnl` cancels the running `handle_command` task
 
 ```ts
 const commander = new ParleyCommander<BackupRequest, BackupProgress, BackupResult, BackupError>(
-  adapter, topics, config, codec);
+  adapter, topics, config, { codec, idGenerator, clock });   // options object; all optional
 
 const result = await commander.execute(request, {
   executionTimeout: 600_000,

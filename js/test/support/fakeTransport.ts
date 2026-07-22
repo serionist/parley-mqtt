@@ -12,15 +12,34 @@ export type OutboundAction =
 export class FakeTransport extends ParleyConnectionAdapter {
   readonly #handlers = new Map<string, ParleyMessageHandler>();
   outbound: OutboundAction[] = [];
+  #reacting = false;
 
   /** When set, {@link publish} throws — simulates a disconnected/disposed client (containment tests). */
   failPublish = false;
+
+  /**
+   * Optional synchronous-loopback hook (design.md — synchronous delivery is legal). When set, it is
+   * invoked from INSIDE {@link publish} (after the action is recorded) so a test can synchronously
+   * deliver an inbound message, re-entering the library mid-transition. Re-entrant publishes made from
+   * within the hook do not re-trigger it (single-level reaction), so canned reactions cannot recurse.
+   */
+  onPublish?: (topic: string, payload: Uint8Array) => void;
 
   override publish(topic: string, payload: Uint8Array): void {
     if (this.failPublish) {
       throw new Error('FakeTransport: publish failed (simulated adapter fault).');
     }
     this.outbound.push({ kind: 'publish', topic, payload: payload.slice() });
+
+    const reaction = this.onPublish;
+    if (reaction && !this.#reacting) {
+      this.#reacting = true;
+      try {
+        reaction(topic, payload);
+      } finally {
+        this.#reacting = false;
+      }
+    }
   }
 
   override subscribe(topic: string, onMessage: ParleyMessageHandler): void {
