@@ -13,7 +13,7 @@ a design smell to justify in [`decisions.md`](decisions.md), not a free choice.
 | `ParleyCommandHandler` | abstract callee side of one command type; the consumer overrides the handle method |
 | `ParleyConnectionAdapter` | abstract transport port the consumer implements over their own MQTT client |
 | `ParleyTopics` | the four topic strings: request, heartbeat, progress, result |
-| `ParleyConfig` | timing configuration (protocol.md §8) + `maxConcurrentExecutions` on the handler side |
+| `ParleyConfig` | timing configuration (protocol.md §8) + the handler caps `maxConcurrentExecutions` / `maxActiveCommands` |
 | `ParleyCallOptions` | per-call overrides: commander-local timeouts (+ the progress sink where idiomatic) |
 | `ParleyResult` | terminal outcome: success with the result payload, or an error (builtin or custom code) |
 
@@ -157,7 +157,8 @@ void loop() { commander.tick(millis()); handler.tick(millis()); }
 ```
 
 ArduinoJson codec; always the explicit-length publish overload; a full pool answers `$busy` per
-protocol.md H2, which is exactly why the pools can stay tiny. A native desktop build runs the
+protocol.md H2, which is exactly why the pools can stay tiny (the `MaxCommands` template parameter
+supplies `maxActiveCommands`). A native desktop build runs the
 same core against the conformance vectors without hardware.
 
 ## Where the logic lives

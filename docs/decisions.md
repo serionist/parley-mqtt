@@ -145,3 +145,42 @@ cancelled on the handler.
 `m`); every message versioned with `v:1`; unknown version/type/fields ignored; error codes
 starting with `$` reserved for the protocol.
 **Why:** tiny-buffer friendly, MQTT-3.1.1-safe (no user properties needed), forward-compatible.
+
+## 2026-07-22 — Malformed input is silently ignored
+
+**Decision:** receivers silently ignore payloads that fail to parse, messages missing required or
+conditionally required fields, and ids violating §4.2 — extending §4's existing ignore-list
+(unknown `v`/`t`, wrong topic, unknown fields).
+**Why:** one uniform receiver posture; an error reply to garbage invites reply loops and gives an
+attacker/misconfigured peer a traffic amplifier; four implementations must not diverge on this.
+**Rejected:** error replies to malformed input; treating a missing `v` as v1.
+
+## 2026-07-22 — `maxActiveCommands`: a uniform, portable admission cap
+
+**Decision:** §8 gains `maxActiveCommands` (handler, default 32) — the cap H2 enforces; a slot is
+held from admission through RESULT-CACHED and freed at the tombstone transition. C++ supplies it
+via the pool template parameter.
+**Why:** completes the Busy design and makes the `$busy` conformance vectors portable — an
+implementation with uncappable pools could never replay them.
+**Rejected:** leaving capacity entirely implementation-defined (untestable across languages).
+
+## 2026-07-22 — Conformance vector format v1 (extended)
+
+**Decision:** §10's format is fully specified before any vector is authored: call-start/cancel
+steps, scripted ids, connection-event step + subscribe expectations, raw-payload negatives,
+handler-stub actions (time-scripted, non-reactive), per-call `outcomes`, same-instant determinism
+rules, and per-vector `rules` clause annotations. Vectors are written from the spec text before
+the first implementation exists.
+**Why:** the vectors are the anti-drift net; if they were shaped by the first implementation, a
+misreading would go green and every later language would inherit it.
+**Rejected:** implementation-specific test scripts; auditing only vector *coverage* rather than
+per-vector correctness.
+
+## 2026-07-22 — Bounded state everywhere (user requirement)
+
+**Decision:** every internal collection in every implementation — in-flight tables, dedup, result
+caches, tombstones (both sides), timer registrations — is TTL'd or hard-capped with explicit
+eviction; per-language suites include sustained-load steady-state tests proving it.
+**Why:** the targets are long-running processes on very small hardware (the JS build especially:
+Shelly-class edge engines); a slow leak is a field failure.
+**Rejected:** relying on GC/idle churn; unbounded caches with "practically never grows" arguments.

@@ -14,6 +14,10 @@ library. Build map: [`../CLAUDE.md`](../CLAUDE.md); the brief: [`../README.md`](
 - **Thin edges, fat core.** All correlation/timeout/retransmit/dedup/heartbeat logic lives in each
   language's core. Transport adapters only translate publish/subscribe/unsubscribe + the connected
   callback; codecs only translate typed payloads ↔ envelope JSON.
+- **Bounded state, always.** No indefinitely growing collection anywhere: every table (in-flight,
+  dedup, result cache, tombstones, timers) is TTL'd or hard-capped with explicit eviction. Each
+  language's suite includes sustained-load steady-state tests proving it (`docs/testing.md`) —
+  the targets are long-running processes on very small hardware, the JS build especially.
 - **Latest-stable, pinned.** Every dependency + toolchain pinned to a concrete newest-stable version
   (no floating ranges, no `:latest`, no prereleases without a recorded waiver). Kept current via
   `update-deps`.
@@ -60,8 +64,12 @@ library. Build map: [`../CLAUDE.md`](../CLAUDE.md); the brief: [`../README.md`](
 - A fake in-memory transport carries the bulk suite in every language (two endpoints talk with no broker).
 - Language-neutral conformance vectors (`docs/conformance/`, format in `docs/protocol.md` §10), replayed
   by all four implementations over a virtual clock, are the anti-drift net.
-- One real-broker integration test per language against a dockerized broker (mosquitto); one
-  docker-compose interop job wiring the broker + all four implementations calling each other.
+- Sustained-load bounded-state tests per language: thousands of command cycles (incl. failure/
+  timeout/cancel paths) under the virtual clock, then assert every internal collection is back at
+  steady-state size.
+- The dockerized e2e matrix (`docs/testing.md`) runs all commander→handler language pairs against
+  a real broker (mosquitto); its diagonal (X→X) subsumes the per-language real-broker integration
+  test once the matrix exists.
 
 ## Commits
 - `feat(csharp): …`, `fix(protocol): …`, `docs: …`, `test: …`. Commit code + its spec/test updates

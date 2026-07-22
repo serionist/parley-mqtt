@@ -66,9 +66,11 @@ Every message is a single **UTF-8 JSON object**. Common fields:
 | `t` | string | REQUIRED | message type: `req` `hb` `prg` `res` `rak` `cnl` |
 | `id` | string | REQUIRED | command id (§4.2) |
 
-Receivers MUST silently ignore: messages with an unrecognized `v`, messages with an unrecognized
-`t`, message types arriving on the wrong topic, and unknown additional fields (forward
-compatibility). `v` increments only on breaking changes to the envelope or the normative behavior.
+Receivers MUST silently ignore: payloads that fail to parse as a JSON object; messages lacking a
+required field — including conditionally required ones (`ok` on `res`; `e` when `ok:false`);
+messages whose `id` violates §4.2; messages with an unrecognized `v` or `t`; message types
+arriving on the wrong topic; and unknown additional fields (forward compatibility). `v` increments
+only on breaking changes to the envelope or the normative behavior.
 
 ### 4.1 Message reference
 
@@ -136,7 +138,8 @@ Per command, a commander is in one of: **SENDING** → **LIVE** → terminal (**
 - **C5 — tombstone.** On *any* terminal outcome the id enters the tombstone table for
   `tombstoneTtl`. A `res` received for a tombstoned id → re-publish `rak` (unless `e:"$busy"`) and
   discard the content. This stops a handler's result retries even when the commander already gave
-  up or completed.
+  up or completed. The tombstone table MAY additionally be hard-capped (oldest-first eviction) —
+  all commander-side state is bounded.
 - **C6 — own-id filter.** Any inbound message whose id is neither in-flight nor tombstoned MUST be
   ignored silently — it belongs to another commander instance. A commander MUST NOT `rak` a result
   it did not originate.
@@ -161,9 +164,10 @@ Per admitted command, a handler tracks: **QUEUED** → **EXECUTING** → **RESUL
   → SHOULD publish an immediate `hb` (resynchronizes the commander cheaply); RESULT-CACHED →
   re-publish the cached `res` immediately; tombstoned → ignore. A duplicate of an admitted id
   MUST NOT receive `$busy`, even while the handler is full for new ids.
-- **H2 — admission / Busy.** For an unknown id with pool capacity available: admit — create the
-  dedup entry, enqueue, and publish the first `hb` **immediately** (this heartbeat is the
-  accept-ack). With no capacity: publish a **stateless** error `res` with `e:"$busy"` — no state
+- **H2 — admission / Busy.** For an unknown id with a free command slot (`maxActiveCommands`,
+  §8): admit — create the dedup entry, enqueue, and publish the first `hb` **immediately** (this
+  heartbeat is the accept-ack). With no free slot: publish a **stateless** error `res` with
+  `e:"$busy"` — no state
   is created, no result is cached, no `rak` is expected — and re-emit it for each further `req`
   of that id while full. A lost `$busy` self-heals through the commander's request retries.
 - **H3 — heartbeats from admission.** From admission until the command's first `res` is
@@ -185,11 +189,12 @@ Per admitted command, a handler tracks: **QUEUED** → **EXECUTING** → **RESUL
 
   *Note:* rule C4 has the commander `rak` a stateless H7 `$cancelled`; the handler ignores it per
   H6. Only `$busy` is exempt from `rak`.
-- **H8 — capacity.** Fixed pools are legal and expected on constrained targets: dedup entries,
-  queue slots, result cache, and tombstones MAY all be hard-capped. The H2 admission check MUST
-  reserve the command's full lifecycle through RESULT-CACHED — an admitted command can always
-  execute and cache its result; only the tombstone pool may be sized independently of admissions.
-  When the tombstone pool overflows, the oldest entries are evicted first.
+- **H8 — capacity.** Fixed pools are legal and expected on constrained targets; `maxActiveCommands`
+  (§8) is the uniform admission cap, and a slot is held from admission through RESULT-CACHED,
+  freed at the tombstone transition. The H2 admission check MUST reserve the command's full
+  lifecycle through RESULT-CACHED — an admitted command can always execute and cache its result;
+  only the tombstone pool may be sized independently of admissions. When the tombstone pool
+  overflows, the oldest entries are evicted first.
 
 ## 8. Timing configuration
 
@@ -208,6 +213,7 @@ Defaults (all overridable; commander-local values also per-call):
 | `resultRetryTimeout` | handler | 30 s | H5 |
 | `tombstoneTtl` | both | 60 s | C5 / H5 |
 | `maxConcurrentExecutions` | handler | 1 | H4 — serial by default |
+| `maxActiveCommands` | handler | 32 | H2/H8 — admission cap; slot held from admission through RESULT-CACHED, freed at the tombstone transition |
 
 The cross-endpoint ratios (`staleTimeout` vs the peer's `heartbeatInterval`) are the deployer's
 responsibility; the recommended ratios above keep single-message loss from producing false
@@ -257,21 +263,37 @@ Each vector is one JSON file:
 ```jsonc
 {
   "name": "queued-command-heartbeats",
-  "role": "handler",                    // which side is under test
-  "config": { "heartbeatInterval": 3000 /* ms; omitted keys use §8 defaults */ },
+  "role": "handler",                     // side under test: "commander" | "handler"
+  "rules": ["H1", "H3"],                 // the C/H clauses this vector pins
+  "config": { "heartbeatInterval": 3000 /* §8 keys in ms/counts; omitted keys use defaults */ },
   "steps": [
     { "at": 0,    "in":  { "topic": "request", "msg": { "v":1, "t":"req", "id":"a", "p":{} } } },
     { "at": 0,    "expect": [ { "topic": "heartbeat", "msg": { "v":1, "t":"hb", "id":"a" } } ] },
     { "at": 3000, "expect": [ { "topic": "heartbeat", "msg": { "v":1, "t":"hb", "id":"a" } } ] }
   ],
-  "outcome": null                       // commander-role vectors: expected terminal outcome
+  "outcomes": { }                        // commander-role only: expected terminal outcome per call id
 }
 ```
 
-`at` is virtual-clock milliseconds; `in` injects an inbound publish; `expect` lists the exact set
-of outbound publishes since the previous step (order within a step is not significant); for
-`role:"commander"` vectors, `outcome` states the expected terminal result/error. Handler-role
-vectors drive the consumer-handler stub via scripted `complete`/`fail`/`progress` step actions.
+Every step is `{ "at": <virtual-clock ms>, <one directive> }`. Directives:
+
+| Directive | Roles | Meaning |
+|---|---|---|
+| `"in": { "topic": T, "msg": {...} }` | both | deliver an inbound publish |
+| `"in": { "topic": T, "raw": "..." }` | both | deliver a raw UTF-8 payload verbatim (robustness negatives) |
+| `"call": { "id": I, "p": ..., "options": {...} }` | commander | start a call; `I` is the id the (scripted) generator returns; `options` = per-call §8 overrides |
+| `"cancel": I` | commander | trigger local cancellation of call `I` |
+| `"handler": { "id": I, "action": A, ... }` | handler | scripted consumer-stub action for admitted command `I`: `A` = `"complete"` (with `"p"`), `"fail"` (with `"e"`, optional `"m"`/`"p"`), or `"progress"` (with `"p"`). Time-scripted and non-reactive — a stub's response to cancellation is expressed by what the script does after the `cnl` step |
+| `"connected": true` | both | fire the transport adapter's connected signal |
+| `"expect": [ ... ]` | both | the **exact set** of outbound actions since the previous step, order-insignificant: `{ "topic": T, "msg": {...} }` for publishes, `{ "subscribe": T }` for subscriptions |
+
+For `role:"commander"` vectors, `outcomes` maps every started call id to its expected terminal —
+`{ "ok": true, "p": ... }` or `{ "ok": false, "e": "..." }` — so multi-in-flight vectors are
+expressible.
+
+Determinism rules: all timer expirations due at or before a step's `at` fire before that step
+executes; steps sharing an `at` run in file order; command ids in commander vectors come from the
+scripted `call.id` values (the injectable §4.2 generator is bypassed by the runner).
 
 Required scenarios (minimum set):
 
@@ -297,3 +319,22 @@ Required scenarios (minimum set):
 20. progress delivery + progress resets the sliding stale timer (C2/C8)
 21. cancel while SENDING — `req` retries stop, `cnl` retried, stateless `$cancelled` terminal
     (C7/H7)
+22. cancel while QUEUED — dequeued, `$cancelled` result cached + retried (H7)
+23. `resultRetryTimeout` give-up — no `rak` ever; retries stop, id tombstones (H5)
+24. `res` as the first sign of life — SENDING → terminal directly, no heartbeat seen (C2/C4)
+25. commander does not `rak` a `$busy` result (C4)
+26. `$busy` received in LIVE is ignored, command completes normally (C4)
+27. handler completes successfully despite `cnl` — genuine result wins (H7)
+28. robustness: unknown `v`, unknown `t`, and type-on-wrong-topic all ignored (§4)
+29. robustness: unparseable payload, missing required field (`id`; `ok` on `res`; `e` when
+    `ok:false`), and invalid id all ignored (§4/§4.2)
+30. robustness: unknown extra fields tolerated; omitted `p` accepted (§4)
+31. multi-in-flight commander — two overlapping calls, interleaved `hb`/`res`, distinct outcomes
+    (C1–C5, C6)
+32. `maxConcurrentExecutions: 2` — two ids execute concurrently, both heartbeat, results
+    interleave (H3/H4)
+33. mixed pool — `maxActiveCommands: 1`: id A admitted and executing, id B gets stateless `$busy`,
+    duplicate of A still gets `hb` not `$busy` (H1/H2)
+34. reconnect — connected signal fires; all subscriptions re-established, in-flight timers
+    unaffected (§2)
+35. commander tombstone expiry — a `res` redelivered after `tombstoneTtl` elicits nothing (C5)
