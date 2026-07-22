@@ -1,0 +1,58 @@
+# Parley layer-3 interop matrix (docs/testing.md). One pinned mosquitto broker plus one peer image per
+# language. run-matrix.sh drives every ordered commander x handler pair over this compose project; the
+# peers reach the broker by its service name. Peers gate on the broker being healthy via
+# depends_on: service_healthy (F3) — no peer starts before the broker accepts connections.
+name: parley-e2e
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.22
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      # Liveness = the broker accepts an anonymous QoS-0 publish.
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-p", "1883", "-t", "healthcheck/ping", "-m", "1", "-q", "0"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 1s
+
+  csharp:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile.csharp
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    volumes:
+      - ./reports:/reports
+
+  js:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile.js
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    volumes:
+      - ./reports:/reports
+
+  python:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile.python
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    volumes:
+      - ./reports:/reports
+
+  cpp:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile.cpp
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    volumes:
+      - ./reports:/reports

@@ -1,0 +1,160 @@
+{
+  "$schema": "https://parley.dev/schemas/interop-scenarios-v1",
+  "description": "Parley layer-3 interop suite (docs/testing.md §layer-3). Language-neutral. Every peer is a GENERIC interpreter of this file and holds ZERO suite logic: the commander role runs the step model below; the handler role serves the five fixed HARNESS command behaviours (echo/slow/err/cancelme/busy1). Sequencing lives ONLY in this data — MQTT per-topic ordering plus the awaitProgress barrier make every scenario sleep-free and deterministic.",
+  "protocolVersion": 1,
+
+  "config": {
+    "_note": "Suite-wide, §8-ratio-valid, compressed so the full serial matrix stays at minutes while every window keeps a >1000x margin over sub-millisecond localhost RTT. Durations are milliseconds; each peer converts to its native unit (C++/JS ms, C# TimeSpan, Python seconds). noAckTimeout=5x requestRetryInterval (§8 SHOULD 3-5x); staleTimeout=3.75x heartbeatInterval (§8 SHOULD >=3x).",
+    "requestRetryInterval": 400,
+    "noAckTimeout": 2000,
+    "staleTimeout": 1500,
+    "executionTimeout": 10000,
+    "cancelRetryInterval": 400,
+    "heartbeatInterval": 400,
+    "resultRetryInterval": 400,
+    "resultRetryTimeout": 5000,
+    "tombstoneTtl": 10000,
+    "maxConcurrentExecutions": 1,
+    "maxActiveCommands": 8
+  },
+
+  "commands": ["echo", "slow", "err", "cancelme", "busy1"],
+
+  "commandTopicSuffixes": { "request": "req", "heartbeat": "hb", "progress": "prg", "result": "res" },
+
+  "harness": {
+    "_note": "Fixed handler behaviours, keyed by command type (docs/testing.md standard command table). Parameters are read from each request's `p`. QoS 0 everywhere (protocol baseline).",
+    "echo": "returns the request payload as the success result (codec fidelity).",
+    "slow": "runs for p.durationMs, emitting a `prg` at execution start and then every p.progressEveryMs, then succeeds (heartbeats, progress, no false $executionStale).",
+    "err": "fails immediately with the custom error code p.code.",
+    "cancelme": "emits a `prg` at execution start and keeps emitting every p.progressEveryMs while parked (the barrier tolerates a lost prg) until cancelled, then completes cancelled ($cancelled).",
+    "busy1": "identical execution behaviour to cancelme, but its handler is constructed with maxActiveCommands=1 so a second concurrent admission yields a stateless $busy."
+  },
+
+  "timeouts": {
+    "_note": "Interpreter caps (ms). The barrier and per-call caps FAIL the scenario if exceeded; run-matrix.sh additionally enforces a per-pair wall-clock timeout so no broken peer can hang the matrix.",
+    "awaitProgressMs": 6000,
+    "callMs": 15000
+  },
+
+  "stepModel": {
+    "_note": "Each step is an object with exactly one directive key. `call` fires and awaits inline with an inline `expect`. `callAsync` fires a named call WITHOUT awaiting. `awaitProgress` blocks until >=1 `prg` for a named call (THE barrier); it FAILS if the named call reaches a terminal outcome first or the cap expires. `cancel` cancels a named call. `await` awaits a named call with an `expect`. `expect` = { ok, e?, p? (deep-equal), minProgress? }.",
+    "directives": ["call", "callAsync", "awaitProgress", "cancel", "await"]
+  },
+
+  "scenarios": [
+    {
+      "name": "echo",
+      "description": "Happy path + codec fidelity: unicode (accents, middot, CJK, Greek, emoji), floats (3.14 exact), negatives, integers, zero, booleans, JSON null-as-value, nesting, and mixed arrays all round-trip byte-for-value.",
+      "steps": [
+        {
+          "call": {
+            "command": "echo",
+            "p": {
+              "unicode": "héllo · wörld · 你好 · Ωμέγα · 😀",
+              "float": 3.14,
+              "negFloat": -2.5,
+              "int": 42,
+              "negInt": -7,
+              "zero": 0,
+              "boolTrue": true,
+              "boolFalse": false,
+              "nullValue": null,
+              "nested": { "a": [1, 2, 3], "b": { "c": "d" } },
+              "mixedArray": [true, "x", 1.5, null, 0]
+            },
+            "expect": {
+              "ok": true,
+              "p": {
+                "unicode": "héllo · wörld · 你好 · Ωμέγα · 😀",
+                "float": 3.14,
+                "negFloat": -2.5,
+                "int": 42,
+                "negInt": -7,
+                "zero": 0,
+                "boolTrue": true,
+                "boolFalse": false,
+                "nullValue": null,
+                "nested": { "a": [1, 2, 3], "b": { "c": "d" } },
+                "mixedArray": [true, "x", 1.5, null, 0]
+              }
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "slow",
+      "description": "A scripted-duration command: terminal success within the cap, minProgress asserted, and heartbeat health asserted implicitly by the ABSENCE of $executionStale (heartbeats are private in every commander surface, never counted).",
+      "steps": [
+        {
+          "call": {
+            "command": "slow",
+            "p": { "durationMs": 1200, "progressEveryMs": 300 },
+            "expect": { "ok": true, "minProgress": 2 }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "err",
+      "description": "Custom error result: the handler fails with a consumer-typed error code, surfaced verbatim to the commander.",
+      "steps": [
+        {
+          "call": {
+            "command": "err",
+            "p": { "code": "myCustomError" },
+            "expect": { "ok": false, "e": "myCustomError" }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "cancelme",
+      "description": "Wire-level cancel of an EXECUTING command. callAsync + the awaitProgress barrier remove every sleep: the barrier proves admission+execution before the cancel, and MQTT per-topic ordering makes the terminal deterministic.",
+      "steps": [
+        { "callAsync": { "name": "a", "command": "cancelme", "p": { "progressEveryMs": 300 } } },
+        { "awaitProgress": { "name": "a" } },
+        { "cancel": { "name": "a" } },
+        { "await": { "name": "a", "expect": { "ok": false, "e": "$cancelled" } } }
+      ]
+    },
+
+    {
+      "name": "busy1",
+      "description": "Stateless $busy on a full pool (maxActiveCommands=1). The barrier parks call `a` in the one slot before `b` is offered, so `b`'s $busy is deterministic; then `a` is cancelled.",
+      "steps": [
+        { "callAsync": { "name": "a", "command": "busy1", "p": { "progressEveryMs": 300 } } },
+        { "awaitProgress": { "name": "a" } },
+        {
+          "call": {
+            "command": "busy1",
+            "p": { "progressEveryMs": 300 },
+            "expect": { "ok": false, "e": "$busy" }
+          }
+        },
+        { "cancel": { "name": "a" } },
+        { "await": { "name": "a", "expect": { "ok": false, "e": "$cancelled" } } }
+      ]
+    }
+  ],
+
+  "selfChecks": [
+    {
+      "name": "noAck",
+      "description": "Commander-local $noAck: run per-commander OUTSIDE the 4x4 matrix, against a prefix with no handler. The sign-of-life window (noAckTimeout) expires before any sign of life. Tests no pair.",
+      "steps": [
+        {
+          "call": {
+            "command": "echo",
+            "p": { "probe": true },
+            "expect": { "ok": false, "e": "$noAck" }
+          }
+        }
+      ]
+    }
+  ]
+}

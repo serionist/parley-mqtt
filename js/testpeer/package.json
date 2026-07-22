@@ -1,0 +1,17 @@
+{
+  "name": "parley-testpeer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Parley layer-3 interop test peer (JS/TS) — a generic interpreter of docs/conformance/interop/scenarios.json over mqtt.js. Not a shipped package.",
+  "license": "MIT",
+  "scripts": {
+    "peer": "tsx peer.ts"
+  },
+  "dependencies": {
+    "mqtt": "5.15.2"
+  },
+  "devDependencies": {
+    "tsx": "4.23.1"
+  }
+}

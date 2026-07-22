@@ -1,0 +1,34 @@
+{
+  "commander": "csharp",
+  "handler": "js",
+  "prefix": "t/r1/csharp-js",
+  "suite": "scenarios",
+  "results": [
+    {
+      "scenario": "echo",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "scenario": "slow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "scenario": "err",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "scenario": "cancelme",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "scenario": "busy1",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "pass": true
+}

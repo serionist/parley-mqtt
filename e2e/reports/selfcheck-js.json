@@ -1,0 +1,14 @@
+{
+  "commander": "js",
+  "handler": "-",
+  "prefix": "t/r1/selfcheck-js",
+  "suite": "selfChecks",
+  "results": [
+    {
+      "scenario": "noAck",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "pass": true
+}

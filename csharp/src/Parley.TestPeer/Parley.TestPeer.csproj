@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Parley layer-3 interop test peer (docs/testing.md). A GENERIC interpreter of
+    docs/conformance/interop/scenarios.json with zero suite logic — not a shipped package.
+    Central package management (csharp/Directory.Packages.props) is opted out here so the peer-local
+    MQTTnet dependency is pinned inline; the frozen Parley core is consumed via ProjectReference.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Parley.TestPeer</RootNamespace>
+    <AssemblyName>Parley.TestPeer</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Parley/Parley.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pinned latest-stable (verified via api.nuget.org 2026-07). MQTT 3.1.1 client, QoS 0. -->
+    <PackageReference Include="MQTTnet" Version="5.2.0.1603" />
+  </ItemGroup>
+
+</Project>

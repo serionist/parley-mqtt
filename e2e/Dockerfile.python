@@ -1,0 +1,11 @@
+# Parley interop test peer — Python 3.13 / asyncio, paho-mqtt 2.1.0 (Parley core from source).
+# Build context: repo root.
+FROM python:3.13-slim-bookworm
+WORKDIR /app
+COPY python/src/ ./python/src/
+COPY python/testpeer/ ./python/testpeer/
+COPY docs/conformance/interop/scenarios.json /app/scenarios.json
+RUN pip install --no-cache-dir "paho-mqtt==2.1.0"
+ENV PYTHONPATH=/app/python/src
+ENV PYTHONUNBUFFERED=1
+ENTRYPOINT ["python", "/app/python/testpeer/peer.py"]

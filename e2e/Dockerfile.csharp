@@ -1,0 +1,11 @@
+# Parley interop test peer — C# / .NET 10, MQTTnet 5.2.0.1603. Build context: repo root.
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY csharp/ ./csharp/
+RUN dotnet publish csharp/src/Parley.TestPeer/Parley.TestPeer.csproj -c Release -o /app
+
+FROM mcr.microsoft.com/dotnet/runtime:10.0
+WORKDIR /app
+COPY --from=build /app ./
+COPY docs/conformance/interop/scenarios.json /app/scenarios.json
+ENTRYPOINT ["dotnet", "/app/Parley.TestPeer.dll"]
