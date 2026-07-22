@@ -1,0 +1,23 @@
+{
+  "//": "MCP servers for building Parley. context7 = live library docs (MQTTnet, mqtt.js, PubSubClient, ArduinoJson). microsoft-learn = .NET/NuGet reference. github = releases/PRs when publishing. Values are env-var references; no secrets in-repo.",
+  "mcpServers": {
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}"
+      }
+    },
+    "microsoft-learn": {
+      "type": "http",
+      "url": "https://learn.microsoft.com/api/mcp"
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_MCP_PAT}"
+      }
+    }
+  }
+}
