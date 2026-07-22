@@ -1,0 +1,70 @@
+{
+  "$schema": "https://parley.dev/schemas/interop-scenarios-v1",
+  "description": "Parley layer-3 DEEP interop suite (docs/testing.md §layer-3) — driver-orchestrated real-world disruption scenarios that only an over-the-wire matrix can prove: stale detection when a handler dies, and adapter reconnect + connected-resubscribe when the broker bounces. These are NOT plain step-model scenarios: each reaches a `barrier` step where the commander peer prints a flushed `PARLEY-BARRIER <label>` line, and run-matrix.sh (the DRIVER) reacts by performing a container action (SIGKILL the handler / restart mosquitto). The peer still interprets ONLY this data and prints the barrier; the driver owns all orchestration. Uses ONE shared root config (no per-scenario override mechanism exists in the peers, and none is added).",
+  "protocolVersion": 1,
+
+  "config": {
+    "_note": "Deep-scenario config. Three windows are widened over the base suite so a real container disruption (kill / broker restart) fits comfortably inside the governing window: staleTimeout 8000 (>> a ~2-3 s mosquitto restart outage, so broker-restart never false-stales; and the window the handler's death is detected within for stale-detect), executionTimeout 20000 (a generous backstop above staleTimeout so the stale terminal — not the execution cap — is what fires), noAckTimeout 4000 (INERT here: both scenarios receive the accept-heartbeat and go LIVE well before any disruption). All other values == base scenarios.json. Ratios stay §8-valid: staleTimeout=20x heartbeatInterval (SHOULD >=3x); noAckTimeout=10x requestRetryInterval. Durations are milliseconds; each peer converts to its native unit.",
+    "requestRetryInterval": 400,
+    "noAckTimeout": 4000,
+    "staleTimeout": 8000,
+    "executionTimeout": 20000,
+    "cancelRetryInterval": 400,
+    "heartbeatInterval": 400,
+    "resultRetryInterval": 400,
+    "resultRetryTimeout": 5000,
+    "tombstoneTtl": 10000,
+    "maxConcurrentExecutions": 1,
+    "maxActiveCommands": 8
+  },
+
+  "commands": ["echo", "slow", "err", "cancelme", "busy1"],
+
+  "commandTopicSuffixes": { "request": "req", "heartbeat": "hb", "progress": "prg", "result": "res" },
+
+  "harness": {
+    "_note": "Same fixed handler behaviours as the base suite; only `slow` is exercised here.",
+    "echo": "returns the request payload as the success result (codec fidelity).",
+    "slow": "runs for p.durationMs, emitting a `prg` at execution start and then every p.progressEveryMs, then succeeds.",
+    "err": "fails immediately with the custom error code p.code.",
+    "cancelme": "emits a `prg` at execution start and keeps emitting every p.progressEveryMs while parked until cancelled, then completes cancelled ($cancelled).",
+    "busy1": "identical execution behaviour to cancelme, but its handler is constructed with maxActiveCommands=1 so a second concurrent admission yields a stateless $busy."
+  },
+
+  "timeouts": {
+    "_note": "Interpreter caps (ms). callMs is deliberately > executionTimeout so the commander's REAL terminal outcome (stale / success / the executionTimeout backstop) is always observed within the cap rather than the interpreter's own await-cap firing first; the driver additionally enforces a per-pair wall-clock timeout. awaitProgressMs is the barrier cap — slow emits its entry prg immediately on admission, so this resolves in well under a second.",
+    "awaitProgressMs": 6000,
+    "callMs": 25000
+  },
+
+  "stepModel": {
+    "_note": "Same directives as the base suite plus `barrier`. `barrier` = { label } prints a flushed `PARLEY-BARRIER <label>` line to the commander's stdout and continues immediately; it is the ONLY new directive and carries no protocol semantics — it is purely a rendezvous signal the driver watches for over the container's log stream (chosen over a broker-topic barrier precisely because the mosquitto restart would tear a topic barrier down). Each deep scenario has exactly one barrier, placed AFTER the call is LIVE (awaitProgress) so the disruption lands on an in-flight, live command.",
+    "directives": ["call", "callAsync", "awaitProgress", "cancel", "await", "barrier"]
+  },
+
+  "scenarios": [
+    {
+      "name": "stale-detect",
+      "description": "$executionStale over the wire. The commander fires slow(8000 ms) and waits until it is LIVE (first prg). At the barrier the DRIVER SIGKILLs the handler container (compose kill / rm -f — never stop — so heartbeats cease promptly). With no further sign of life, the commander's sliding window expires staleTimeout (8000 ms) after the LAST heartbeat and the call terminates $executionStale. The outcome is expected within the scenario's callMs cap (not staleTimeout+margin: the driver's kill latency is unbounded, but the stale window always runs from the last heartbeat regardless).",
+      "steps": [
+        { "callAsync": { "name": "a", "command": "slow", "p": { "durationMs": 8000, "progressEveryMs": 500 } } },
+        { "awaitProgress": { "name": "a" } },
+        { "barrier": { "label": "stale-detect" } },
+        { "await": { "name": "a", "expect": { "ok": false, "e": "$executionStale" } } }
+      ]
+    },
+
+    {
+      "name": "broker-restart",
+      "description": "Adapter reconnect + connected-resubscribe over the wire. The commander fires slow(8000 ms) and waits until it is LIVE (first prg). At the barrier the DRIVER bounces mosquitto fast and deterministically (docker compose restart -t 1). Both peers lose the broker; each adapter reconnects and refires the library's connected callback, which re-subscribes every topic; the handler's execution keeps running locally through the outage and its heartbeats/progress/result bridge the gap once the link is back. The ~8 s stale window sits comfortably above the ~2-3 s outage, so no false $executionStale — the call MUST complete {ok:true}.",
+      "steps": [
+        { "callAsync": { "name": "a", "command": "slow", "p": { "durationMs": 8000, "progressEveryMs": 500 } } },
+        { "awaitProgress": { "name": "a" } },
+        { "barrier": { "label": "broker-restart" } },
+        { "await": { "name": "a", "expect": { "ok": true, "minProgress": 1 } } }
+      ]
+    }
+  ],
+
+  "selfChecks": []
+}

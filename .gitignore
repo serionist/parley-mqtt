@@ -37,3 +37,7 @@ __pycache__/
 
 # C++ native builds
 cpp/build*/
+
+# ---- e2e generated interop reports (regenerated every run; keep the directory) ----
+e2e/reports/*
+!e2e/reports/.gitkeep

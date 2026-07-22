@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include <chrono>
 #include <cstdlib>
@@ -63,24 +64,26 @@ typedef std::function<void(const char*, const uint8_t*, size_t)> DeliverFn;
 
 struct PeerContext {
   bool connected = false;
+  int connectGen = 0;  // incremented on every CONNACK; a change signals a (re)connection to resubscribe
   int pendingSubs = 0;
   std::map<std::string, DeliverFn> routes;
 };
 
 // ---------------------------------------------------------------------------
-// libmosquitto transport adapter (outbound: publish/subscribe/unsubscribe).
+// libmosquitto transport adapter (outbound: publish/subscribe/unsubscribe). QoS is configurable
+// (0 default, 1 for the adapter-compatibility pass); retain is always false (protocol.md §2).
 // ---------------------------------------------------------------------------
 class MosquittoAdapter : public ParleyConnectionAdapter {
  public:
-  MosquittoAdapter(struct mosquitto* mosq, PeerContext* ctx) : mosq_(mosq), ctx_(ctx) {}
+  MosquittoAdapter(struct mosquitto* mosq, PeerContext* ctx, int qos) : mosq_(mosq), ctx_(ctx), qos_(qos) {}
 
   void publish(const char* topic, const uint8_t* payload, size_t length) override {
-    mosquitto_publish(mosq_, nullptr, topic, static_cast<int>(length), payload, /*qos=*/0, /*retain=*/false);
+    mosquitto_publish(mosq_, nullptr, topic, static_cast<int>(length), payload, qos_, /*retain=*/false);
   }
 
   void subscribe(const char* topic) override {
     int mid = 0;
-    if (mosquitto_subscribe(mosq_, &mid, topic, /*qos=*/0) == MOSQ_ERR_SUCCESS) {
+    if (mosquitto_subscribe(mosq_, &mid, topic, qos_) == MOSQ_ERR_SUCCESS) {
       ctx_->pendingSubs++;
     }
   }
@@ -90,6 +93,7 @@ class MosquittoAdapter : public ParleyConnectionAdapter {
  private:
   struct mosquitto* mosq_;
   PeerContext* ctx_;
+  int qos_;
 };
 
 // ---------------------------------------------------------------------------
@@ -148,6 +152,7 @@ struct IPeerHandler {
   virtual void doTick(uint32_t now) = 0;
   virtual void doPump(uint32_t now) = 0;
   virtual void doDeliver(const char* topic, const uint8_t* payload, size_t len) = 0;
+  virtual void doConnected() = 0;  // (re)connection → resubscribe (protocol.md §2)
 };
 
 template <int MaxCommands>
@@ -161,6 +166,7 @@ class HarnessHandler : public parley::ParleyCommandHandler<RawPayload, RawPayloa
       : Base(a, t, c), kind_(kind) {}
 
   void doTick(uint32_t now) override { this->tick(now); }
+  void doConnected() override { this->connected(); }
   void doDeliver(const char* topic, const uint8_t* payload, size_t len) override {
     this->deliver(topic, payload, len);
   }
@@ -173,13 +179,19 @@ class HarnessHandler : public parley::ParleyCommandHandler<RawPayload, RawPayloa
         lastProgress_ = now;
       }
       if (now - start_ >= static_cast<uint32_t>(durationMs_)) {
-        exec_->succeed(makeDone());
+        // Clear exec_ BEFORE the terminal call: succeed() completes this command and, under
+        // maxConcurrentExecutions==1 with a queued command, SYNCHRONOUSLY dispatches the next one —
+        // which re-enters handleCommand() and sets exec_ to that new execution. Nulling exec_ after
+        // succeed() would clobber (orphan) the freshly-dispatched command.
+        Exec* completing = exec_;
         exec_ = nullptr;
+        completing->succeed(makeDone());
       }
     } else {  // cancelme / busy1
       if (exec_->isCancelRequested()) {
-        exec_->cancel();
+        Exec* completing = exec_;  // same re-entrancy discipline as the KSlow succeed() path
         exec_ = nullptr;
+        completing->cancel();
         return;
       }
       if (now - lastProgress_ >= static_cast<uint32_t>(everyMs_)) {
@@ -236,6 +248,33 @@ struct CallRec {
 
 static std::vector<PeerCommander*> g_commanders;  // pumped by pumpUntil
 static struct mosquitto* g_mosq = nullptr;
+static PeerContext* g_ctx = nullptr;
+static int g_lastAppliedGen = 0;
+static std::vector<std::function<void()>> g_connectables;  // fires connected() on each core
+
+static void sleepMs(int ms) {
+  struct timespec ts;
+  ts.tv_sec = ms / 1000;
+  ts.tv_nsec = static_cast<long>(ms % 1000) * 1000000L;
+  nanosleep(&ts, nullptr);
+}
+
+// Synchronous reconnect service, called after every mosquitto_loop in both pump loops. On a loop
+// error (connection lost / never up) it re-issues mosquitto_reconnect (best-effort — the CONNACK is
+// processed by a later loop). When a NEW connection generation appears (onConnectCb bumped connectGen),
+// it fires connected() on every core so the library re-subscribes (protocol.md §2). The initial connect
+// already subscribed at construction, so g_lastAppliedGen is primed to that generation and only genuine
+// reconnects trigger a resubscribe.
+static void serviceConnection(int loopRc) {
+  if (loopRc != MOSQ_ERR_SUCCESS) {
+    mosquitto_reconnect(g_mosq);
+    sleepMs(20);  // avoid a busy-spin while the broker is down
+  }
+  if (g_ctx != nullptr && g_ctx->connectGen != g_lastAppliedGen) {
+    g_lastAppliedGen = g_ctx->connectGen;
+    for (size_t i = 0; i < g_connectables.size(); ++i) g_connectables[i]();
+  }
+}
 
 static void onCommanderProgress(void* ud, const RawPayload&) { static_cast<CallRec*>(ud)->progress++; }
 static void onCommanderComplete(void* ud, const ParleyResult<RawPayload, RawCode>& r) {
@@ -247,7 +286,8 @@ static void onCommanderComplete(void* ud, const ParleyResult<RawPayload, RawCode
 static bool pumpUntil(const std::function<bool()>& pred, uint32_t timeoutMs) {
   uint32_t start = nowMs();
   for (;;) {
-    mosquitto_loop(g_mosq, 5, 1);
+    int rc = mosquitto_loop(g_mosq, 5, 1);
+    serviceConnection(rc);
     uint32_t now = nowMs();
     for (size_t i = 0; i < g_commanders.size(); ++i) g_commanders[i]->tick(now);
     if (pred()) return true;
@@ -356,6 +396,12 @@ static std::string runScenario(JsonObjectConst scenario, std::map<std::string, P
       std::map<std::string, CallRec*>::iterator it = named.find(target);
       if (it == named.end()) return name + ": cancel of unknown call '" + target + "'";
       commanders[it->second->command]->cancel(it->second->handle);
+    } else if (!step["barrier"].isNull()) {
+      // Driver rendezvous: emit a flushed PARLEY-BARRIER line and continue. The driver watches the
+      // log stream for this and performs the container action (kill handler / restart broker).
+      const char* label = step["barrier"]["label"].as<const char*>();
+      printf("PARLEY-BARRIER %s\n", (label != nullptr) ? label : name.c_str());
+      fflush(stdout);
     } else if (!step["await"].isNull()) {
       JsonObjectConst awaitStep = step["await"].as<JsonObjectConst>();
       std::string target = awaitStep["name"].as<const char*>();
@@ -437,7 +483,13 @@ static void parseBroker(const std::string& broker, std::string& host, int& port)
 // mosquitto callbacks
 // ---------------------------------------------------------------------------
 static void onConnectCb(struct mosquitto*, void* obj, int) {
-  static_cast<PeerContext*>(obj)->connected = true;
+  PeerContext* ctx = static_cast<PeerContext*>(obj);
+  ctx->connected = true;
+  ctx->connectGen++;  // a new generation → serviceConnection() will resubscribe the cores
+}
+
+static void onDisconnectCb(struct mosquitto*, void* obj, int) {
+  static_cast<PeerContext*>(obj)->connected = false;
 }
 
 static void onSubscribeCb(struct mosquitto*, void* obj, int, int, const int*) {
@@ -463,6 +515,8 @@ int main(int argc, char** argv) {
   std::string scenariosPath = opt.count("scenarios") ? opt["scenarios"] : "scenarios.json";
   std::string suiteKey = (opt.count("suite") && opt["suite"] == "selfchecks") ? "selfChecks" : "scenarios";
   std::string handlerLang = opt.count("handler-lang") ? opt["handler-lang"] : "-";
+  std::string scenarioFilter = opt.count("scenario") ? opt["scenario"] : "";
+  int qos = (opt.count("qos") && opt["qos"] == "1") ? 1 : 0;
   std::string host;
   int port = 1883;
   parseBroker(opt.count("broker") ? opt["broker"] : "localhost:1883", host, port);
@@ -485,9 +539,11 @@ int main(int argc, char** argv) {
 
   mosquitto_lib_init();
   PeerContext ctx;
+  g_ctx = &ctx;
   struct mosquitto* mosq = mosquitto_new(nullptr, /*clean_session=*/true, &ctx);
   g_mosq = mosq;
   mosquitto_connect_callback_set(mosq, onConnectCb);
+  mosquitto_disconnect_callback_set(mosq, onDisconnectCb);
   mosquitto_subscribe_callback_set(mosq, onSubscribeCb);
   mosquitto_message_callback_set(mosq, onMessageCb);
 
@@ -506,7 +562,7 @@ int main(int argc, char** argv) {
     }
   }
 
-  MosquittoAdapter adapter(mosq, &ctx);
+  MosquittoAdapter adapter(mosq, &ctx, qos);
   TopicStore topics;
 
   if (role == "handler") {
@@ -522,6 +578,7 @@ int main(int argc, char** argv) {
         h = new HarnessHandler<8>(adapter, t, config, kind);
       }
       handlers.push_back(h);
+      g_connectables.push_back([h]() { h->doConnected(); });  // resubscribe on reconnect
       ctx.routes[prefix + "/" + cmd + "/req"] = [h](const char* tp, const uint8_t* p, size_t l) {
         h->doDeliver(tp, p, l);
       };
@@ -532,11 +589,15 @@ int main(int argc, char** argv) {
       uint32_t start = nowMs();
       while (ctx.pendingSubs > 0 && nowMs() - start < 10000) mosquitto_loop(mosq, 20, 1);
     }
+    // Prime the connection generation: the cores already subscribed at construction, so only a genuine
+    // later reconnect (connectGen change) should trigger a resubscribe via serviceConnection().
+    g_lastAppliedGen = ctx.connectGen;
     printf("PARLEY-PEER-READY\n");
     fflush(stdout);
 
     for (;;) {
-      mosquitto_loop(mosq, 50, 1);
+      int rc = mosquitto_loop(mosq, 50, 1);
+      serviceConnection(rc);
       uint32_t now = nowMs();
       for (size_t i = 0; i < handlers.size(); ++i) {
         handlers[i]->doTick(now);
@@ -554,6 +615,7 @@ int main(int argc, char** argv) {
     PeerCommander* c = new PeerCommander(adapter, t, config);
     commanders[cmd] = c;
     g_commanders.push_back(c);
+    g_connectables.push_back([c]() { c->connected(); });  // resubscribe on reconnect
     ctx.routes[prefix + "/" + cmd + "/hb"] = [c](const char* tp, const uint8_t* p, size_t l) { c->deliver(tp, p, l); };
     ctx.routes[prefix + "/" + cmd + "/prg"] = [c](const char* tp, const uint8_t* p, size_t l) { c->deliver(tp, p, l); };
     ctx.routes[prefix + "/" + cmd + "/res"] = [c](const char* tp, const uint8_t* p, size_t l) { c->deliver(tp, p, l); };
@@ -564,6 +626,8 @@ int main(int argc, char** argv) {
     uint32_t start = nowMs();
     while (ctx.pendingSubs > 0 && nowMs() - start < 10000) mosquitto_loop(mosq, 20, 1);
   }
+  // Prime the connection generation (see the handler branch): only a genuine later reconnect resubscribes.
+  g_lastAppliedGen = ctx.connectGen;
 
   JsonDocument report;
   report["commander"] = kSelfLang;
@@ -572,10 +636,13 @@ int main(int argc, char** argv) {
   report["suite"] = suiteKey;
   JsonArray results = report["results"].to<JsonArray>();
   bool allPass = true;
+  int ran = 0;
 
   for (JsonVariantConst scenarioV : root[suiteKey.c_str()].as<JsonArrayConst>()) {
     JsonObjectConst scenario = scenarioV.as<JsonObjectConst>();
     std::string sname = scenario["name"].as<const char*>();
+    if (!scenarioFilter.empty() && sname != scenarioFilter) continue;
+    ++ran;
     std::string err = runScenario(scenario, commanders, barrierMs, callMs);
     bool pass = err.empty();
     if (!pass) allPass = false;
@@ -583,6 +650,13 @@ int main(int argc, char** argv) {
     o["scenario"] = sname;
     o["pass"] = pass;
     o["detail"] = err;
+  }
+  if (!scenarioFilter.empty() && ran == 0) {
+    allPass = false;
+    JsonObject o = results.add<JsonObject>();
+    o["scenario"] = scenarioFilter;
+    o["pass"] = false;
+    o["detail"] = "no scenario named '" + scenarioFilter + "' in suite '" + suiteKey + "'";
   }
   report["pass"] = allPass;
 

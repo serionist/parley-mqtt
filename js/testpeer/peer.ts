@@ -35,14 +35,20 @@ const COMMANDS = ['echo', 'slow', 'err', 'cancelme', 'busy1'] as const;
 // start gate on the broker actually holding the subscriptions (QoS 0 has no
 // retained state — publishing before a subscription lands would drop silently).
 // ---------------------------------------------------------------------------
+// mqtt.js auto-reconnects (reconnectPeriod default) and refires its `connect` event on every
+// reconnection; the adapter forwards that to raiseConnected() so the Parley core re-subscribes. The
+// client is created with `resubscribe: false` (see main) so the LIBRARY is the sole resubscriber — a
+// double subscribe would be harmless (replace-semantics) but keeping one owner is cleaner.
 class MqttJsAdapter extends ParleyConnectionAdapter {
   readonly #client: MqttClient;
+  readonly #qos: 0 | 1;
   readonly #handlers = new Map<string, ParleyMessageHandler>();
   readonly #pending: Array<Promise<void>> = [];
 
-  constructor(client: MqttClient) {
+  constructor(client: MqttClient, qos: 0 | 1) {
     super();
     this.#client = client;
+    this.#qos = qos;
     this.#client.on('message', (topic: string, payload: Buffer) => {
       this.#handlers.get(topic)?.(topic, payload);
     });
@@ -50,7 +56,7 @@ class MqttJsAdapter extends ParleyConnectionAdapter {
   }
 
   override publish(topic: string, payload: Uint8Array): void {
-    this.#client.publish(topic, Buffer.from(payload), { qos: 0, retain: false });
+    this.#client.publish(topic, Buffer.from(payload), { qos: this.#qos, retain: false });
   }
 
   override subscribe(topic: string, onMessage: ParleyMessageHandler): void {
@@ -58,7 +64,7 @@ class MqttJsAdapter extends ParleyConnectionAdapter {
     if (this.#client.connected) {
       this.#pending.push(
         new Promise<void>((resolve) => {
-          this.#client.subscribe(topic, { qos: 0 }, () => resolve());
+          this.#client.subscribe(topic, { qos: this.#qos }, () => resolve());
         }),
       );
     }
@@ -177,6 +183,12 @@ async function runScenario(
       } else if (rawStep.cancel) {
         const ref = rawStep.cancel as Record<string, unknown>;
         requireCall(named, ref).controller.abort();
+      } else if (rawStep.barrier) {
+        // Driver rendezvous: emit a flushed PARLEY-BARRIER line and continue. The driver watches the
+        // log stream for this and performs the container action (kill handler / restart broker).
+        const b = rawStep.barrier as Record<string, unknown>;
+        const label = typeof b.label === 'string' ? b.label : name;
+        process.stdout.write(`PARLEY-BARRIER ${label}\n`);
       } else if (rawStep.await) {
         const ref = rawStep.await as Record<string, unknown>;
         const rec = requireCall(named, ref);
@@ -412,6 +424,8 @@ async function main(): Promise<void> {
   const scenariosPath = opt.scenarios ?? 'scenarios.json';
   const suiteKey = opt.suite === 'selfchecks' ? 'selfChecks' : 'scenarios';
   const handlerLang = opt['handler-lang'] ?? '-';
+  const scenarioFilter = opt.scenario;
+  const qos: 0 | 1 = opt.qos === '1' ? 1 : 0;
 
   const root = JSON.parse(readFileSync(scenariosPath, 'utf8')) as Record<string, unknown>;
   const cfg = root.config as Record<string, unknown>;
@@ -420,12 +434,14 @@ async function main(): Promise<void> {
   const barrierMs = timeouts.awaitProgressMs;
   const callMs = timeouts.callMs;
 
-  const client = mqtt.connect(`mqtt://${host}:${port}`, { protocolVersion: 4, clean: true });
+  // resubscribe:false — the Parley core is the sole resubscriber via the connect-event → raiseConnected
+  // path (mqtt.js auto-reconnects and refires `connect` on every reconnection).
+  const client = mqtt.connect(`mqtt://${host}:${port}`, { protocolVersion: 4, clean: true, resubscribe: false });
   await new Promise<void>((resolve, reject) => {
     client.once('connect', () => resolve());
     client.once('error', reject);
   });
-  const adapter = new MqttJsAdapter(client);
+  const adapter = new MqttJsAdapter(client, qos);
 
   if (role === 'handler') {
     const handlers: HarnessHandler[] = [];
@@ -449,7 +465,13 @@ async function main(): Promise<void> {
 
   const results: StepResult[] = [];
   for (const scenario of root[suiteKey] as Array<Record<string, unknown>>) {
+    if (scenarioFilter && String(scenario.name) !== scenarioFilter) {
+      continue;
+    }
     results.push(await runScenario(scenario, commanders, barrierMs, callMs));
+  }
+  if (scenarioFilter && results.length === 0) {
+    results.push({ scenario: scenarioFilter, pass: false, detail: `no scenario named '${scenarioFilter}' in suite '${suiteKey}'` });
   }
 
   const allPass = results.every((r) => r.pass);

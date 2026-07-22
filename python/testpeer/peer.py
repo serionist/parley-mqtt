@@ -42,10 +42,11 @@ COMMANDS = ["echo", "slow", "err", "cancelme", "busy1"]
 # retained state — publishing before a subscription lands would drop silently).
 # ---------------------------------------------------------------------------
 class PahoAdapter(ParleyConnectionAdapter):
-    def __init__(self, client: mqtt.Client, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(self, client: mqtt.Client, loop: asyncio.AbstractEventLoop, qos: int = 0) -> None:
         super().__init__()
         self._client = client
         self._loop = loop
+        self._qos = qos
         self._handlers: dict[str, ParleyMessageHandler] = {}
         self._pending_mids: set[int] = set()
         client.on_message = self._on_message
@@ -53,12 +54,12 @@ class PahoAdapter(ParleyConnectionAdapter):
         client.on_subscribe = self._on_subscribe
 
     def publish(self, topic: str, payload: bytes) -> None:
-        self._client.publish(topic, payload, qos=0, retain=False)
+        self._client.publish(topic, payload, qos=self._qos, retain=False)
 
     def subscribe(self, topic: str, on_message: ParleyMessageHandler) -> None:
         self._handlers[topic] = on_message
         if self._client.is_connected():
-            _result, mid = self._client.subscribe(topic, qos=0)
+            _result, mid = self._client.subscribe(topic, qos=self._qos)
             if mid is not None:
                 self._pending_mids.add(mid)
 
@@ -212,6 +213,12 @@ async def run_scenario(scenario: dict, commanders: dict, barrier_ms: int, call_m
                 await barrier(name, require_call(named, step["awaitProgress"]), barrier_ms)
             elif "cancel" in step:
                 require_call(named, step["cancel"])["signal"].abort()
+            elif "barrier" in step:
+                # Driver rendezvous: emit a flushed PARLEY-BARRIER line and continue. The driver
+                # watches the log stream for this and performs the container action.
+                b = step["barrier"]
+                label = b.get("label") if isinstance(b, dict) else None
+                print(f"PARLEY-BARRIER {label or name}", flush=True)
             elif "await" in step:
                 ref = step["await"]
                 rec = require_call(named, ref)
@@ -321,6 +328,8 @@ async def main() -> None:
     scenarios_path = opt.get("scenarios", "scenarios.json")
     suite_key = "selfChecks" if opt.get("suite") == "selfchecks" else "scenarios"
     handler_lang = opt.get("handler-lang", "-")
+    scenario_filter = opt.get("scenario")
+    qos = 1 if opt.get("qos") == "1" else 0
 
     with open(scenarios_path, encoding="utf-8") as f:
         root = json.load(f)
@@ -331,7 +340,11 @@ async def main() -> None:
 
     loop = asyncio.get_running_loop()
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    adapter = PahoAdapter(client, loop)
+    # paho auto-reconnects on unexpected disconnect while loop_start's thread runs, refiring on_connect
+    # (→ raise_connected → the core resubscribes). Cap the backoff at 2 s so a broker restart is bridged
+    # well inside the deep staleTimeout (8 s).
+    client.reconnect_delay_set(min_delay=1, max_delay=2)
+    adapter = PahoAdapter(client, loop, qos)
     client.connect(host, port)
     client.loop_start()
     await wait_connected(client)
@@ -354,7 +367,12 @@ async def main() -> None:
 
     results = []
     for scenario in root[suite_key]:
+        if scenario_filter and scenario["name"] != scenario_filter:
+            continue
         results.append(await run_scenario(scenario, commanders, barrier_ms, call_ms))
+    if scenario_filter and not results:
+        results.append({"scenario": scenario_filter, "pass": False,
+                        "detail": f"no scenario named '{scenario_filter}' in suite '{suite_key}'"})
 
     all_pass = all(r["pass"] for r in results)
     report = json.dumps(

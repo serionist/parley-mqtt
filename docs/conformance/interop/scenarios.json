@@ -86,7 +86,7 @@
 
     {
       "name": "slow",
-      "description": "A scripted-duration command: terminal success within the cap, minProgress asserted, and heartbeat health asserted implicitly by the ABSENCE of $executionStale (heartbeats are private in every commander surface, never counted).",
+      "description": "A scripted-duration command: terminal success within the cap and minProgress asserted. Progress here IS a sign of life — each prg (every 300 ms) resets the commander's sliding sign-of-life window (300 ms < staleTimeout 1500 ms), so the absence of $executionStale follows from the PROGRESS cadence, not from heartbeats. Heartbeat-only liveness (a progress-free window sustained by hb alone) is proven separately by the silent-slow scenario.",
       "steps": [
         {
           "call": {
@@ -138,6 +138,88 @@
         },
         { "cancel": { "name": "a" } },
         { "await": { "name": "a", "expect": { "ok": false, "e": "$cancelled" } } }
+      ]
+    },
+
+    {
+      "name": "concurrent",
+      "description": "Commander-side multi-in-flight + handler FIFO queue. Two slow calls (a, b) are fired via callAsync onto the SAME slow command (one handler, maxConcurrentExecutions PINNED at 1), so the handler admits both (heartbeats flow for the queued one) but executes them one at a time FIFO — a runs, then b. Meanwhile echo call c is offered on its own command and completes independently. All three reach terminal success. maxConcurrentExecutions stays 1 by design: the loop-based harness handlers hold a single execution, so raising it would break C++ only and masquerade as a library bug.",
+      "steps": [
+        { "callAsync": { "name": "a", "command": "slow", "p": { "durationMs": 600, "progressEveryMs": 200 } } },
+        { "callAsync": { "name": "b", "command": "slow", "p": { "durationMs": 600, "progressEveryMs": 200 } } },
+        {
+          "call": {
+            "command": "echo",
+            "p": { "k": "concurrent-c", "n": 3 },
+            "expect": { "ok": true, "p": { "k": "concurrent-c", "n": 3 } }
+          }
+        },
+        { "await": { "name": "a", "expect": { "ok": true, "minProgress": 1 } } },
+        { "await": { "name": "b", "expect": { "ok": true, "minProgress": 1 } } }
+      ]
+    },
+
+    {
+      "name": "churn",
+      "description": "Command-id churn + tombstone turnover under real broker timing: 20 sequential echo calls, each admitted, completed, rak'd and tombstoned before the next is offered. Exercises id generation, per-id tombstone lifecycle, and steady-state resource reuse across many terminal outcomes (all within the default tombstone table cap).",
+      "steps": [
+        { "call": { "command": "echo", "p": { "seq": 1, "tag": "churn-1" }, "expect": { "ok": true, "p": { "seq": 1, "tag": "churn-1" } } } },
+        { "call": { "command": "echo", "p": { "seq": 2, "tag": "churn-2" }, "expect": { "ok": true, "p": { "seq": 2, "tag": "churn-2" } } } },
+        { "call": { "command": "echo", "p": { "seq": 3, "tag": "churn-3" }, "expect": { "ok": true, "p": { "seq": 3, "tag": "churn-3" } } } },
+        { "call": { "command": "echo", "p": { "seq": 4, "tag": "churn-4" }, "expect": { "ok": true, "p": { "seq": 4, "tag": "churn-4" } } } },
+        { "call": { "command": "echo", "p": { "seq": 5, "tag": "churn-5" }, "expect": { "ok": true, "p": { "seq": 5, "tag": "churn-5" } } } },
+        { "call": { "command": "echo", "p": { "seq": 6, "tag": "churn-6" }, "expect": { "ok": true, "p": { "seq": 6, "tag": "churn-6" } } } },
+        { "call": { "command": "echo", "p": { "seq": 7, "tag": "churn-7" }, "expect": { "ok": true, "p": { "seq": 7, "tag": "churn-7" } } } },
+        { "call": { "command": "echo", "p": { "seq": 8, "tag": "churn-8" }, "expect": { "ok": true, "p": { "seq": 8, "tag": "churn-8" } } } },
+        { "call": { "command": "echo", "p": { "seq": 9, "tag": "churn-9" }, "expect": { "ok": true, "p": { "seq": 9, "tag": "churn-9" } } } },
+        { "call": { "command": "echo", "p": { "seq": 10, "tag": "churn-10" }, "expect": { "ok": true, "p": { "seq": 10, "tag": "churn-10" } } } },
+        { "call": { "command": "echo", "p": { "seq": 11, "tag": "churn-11" }, "expect": { "ok": true, "p": { "seq": 11, "tag": "churn-11" } } } },
+        { "call": { "command": "echo", "p": { "seq": 12, "tag": "churn-12" }, "expect": { "ok": true, "p": { "seq": 12, "tag": "churn-12" } } } },
+        { "call": { "command": "echo", "p": { "seq": 13, "tag": "churn-13" }, "expect": { "ok": true, "p": { "seq": 13, "tag": "churn-13" } } } },
+        { "call": { "command": "echo", "p": { "seq": 14, "tag": "churn-14" }, "expect": { "ok": true, "p": { "seq": 14, "tag": "churn-14" } } } },
+        { "call": { "command": "echo", "p": { "seq": 15, "tag": "churn-15" }, "expect": { "ok": true, "p": { "seq": 15, "tag": "churn-15" } } } },
+        { "call": { "command": "echo", "p": { "seq": 16, "tag": "churn-16" }, "expect": { "ok": true, "p": { "seq": 16, "tag": "churn-16" } } } },
+        { "call": { "command": "echo", "p": { "seq": 17, "tag": "churn-17" }, "expect": { "ok": true, "p": { "seq": 17, "tag": "churn-17" } } } },
+        { "call": { "command": "echo", "p": { "seq": 18, "tag": "churn-18" }, "expect": { "ok": true, "p": { "seq": 18, "tag": "churn-18" } } } },
+        { "call": { "command": "echo", "p": { "seq": 19, "tag": "churn-19" }, "expect": { "ok": true, "p": { "seq": 19, "tag": "churn-19" } } } },
+        { "call": { "command": "echo", "p": { "seq": 20, "tag": "churn-20" }, "expect": { "ok": true, "p": { "seq": 20, "tag": "churn-20" } } } }
+      ]
+    },
+
+    {
+      "name": "boundary-echo",
+      "description": "Near-cap codec fidelity. A unicode-mixed payload whose SERIALIZED success-res envelope sits just under the C++ peer's kMaxPayload cap (1024 B). MEASURED serialized `res` sizes for this exact payload (22-char id): 1005 B when non-ASCII is \\uXXXX-escaped (C#'s System.Text.Json — the largest-serializing peer, hence the binding case whenever cpp is commander or handler) and 947 B raw-UTF-8 (JS / Python / C++). Both are < 1024 B with margin; the `req` envelope is ~10 B smaller than the `res`. Proves every codec round-trips a near-cap payload byte-for-value over the wire. Cap-EXCEEDING payloads (local reject) stay a layer-1 concern and are NOT exercised here.",
+      "steps": [
+        {
+          "call": {
+            "command": "echo",
+            "p": {
+              "u": "héllo · wörld · 你好 · Ωμέγα · 😀",
+              "pad": "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
+            },
+            "expect": {
+              "ok": true,
+              "p": {
+                "u": "héllo · wörld · 你好 · Ωμέγα · 😀",
+                "pad": "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
+              }
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "silent-slow",
+      "description": "Heartbeat-only liveness over the wire. durationMs == progressEveryMs == 4000 yields an entry prg then a SINGLE 4000 ms window with no progress at all — only heartbeats (every 400 ms) flow. That silent window (4000 ms) far exceeds staleTimeout (1500 ms), so the call can succeed ONLY if heartbeats alone keep resetting the commander's sliding sign-of-life window. This isolates heartbeat liveness from progress liveness (the base slow scenario proves the latter). IMPORTANT: durationMs == progressEveryMs is the ONLY cross-language-consistent silent encoding — every harness handler sleeps progressEveryMs per loop iteration, so a sentinel form (progressEveryMs > durationMs, or 0 / negative) would hang the loop-based handlers. Sentinel encodings are therefore FORBIDDEN here. minProgress is asserted >= 1 only, never an exact count: the entry/terminal prg counts are timing- and QoS-tolerant.",
+      "steps": [
+        {
+          "call": {
+            "command": "slow",
+            "p": { "durationMs": 4000, "progressEveryMs": 4000 },
+            "expect": { "ok": true, "minProgress": 1 }
+          }
+        }
       ]
     }
   ],

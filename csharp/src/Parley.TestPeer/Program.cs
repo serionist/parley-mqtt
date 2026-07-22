@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MQTTnet;
 using MQTTnet.Formatter;
+using MQTTnet.Protocol;
 using Parley;
 
 namespace Parley.TestPeer
@@ -32,6 +33,10 @@ namespace Parley.TestPeer
             string suiteKey = Opt(opt, "suite", "matrix") == "selfchecks" ? "selfChecks" : "scenarios";
             string handlerLang = Opt(opt, "handler-lang", "-");
             string? reportPath = OptOrNull(opt, "report");
+            string? scenarioFilter = OptOrNull(opt, "scenario");
+            MqttQualityOfServiceLevel qos = (int.TryParse(Opt(opt, "qos", "0"), out int q) ? q : 0) >= 1
+                ? MqttQualityOfServiceLevel.AtLeastOnce
+                : MqttQualityOfServiceLevel.AtMostOnce;
 
             using JsonDocument doc = JsonDocument.Parse(File.ReadAllBytes(scenariosPath));
             JsonElement root = doc.RootElement;
@@ -48,7 +53,7 @@ namespace Parley.TestPeer
                 .WithProtocolVersion(MqttProtocolVersion.V311)
                 .Build();
             await client.ConnectAsync(mopts).ConfigureAwait(false);
-            MqttNetAdapter adapter = new MqttNetAdapter(client);
+            MqttNetAdapter adapter = new MqttNetAdapter(client, mopts, qos);
 
             if (role == "handler")
             {
@@ -82,7 +87,18 @@ namespace Parley.TestPeer
             List<(string Scenario, bool Pass, string Detail)> results = new List<(string, bool, string)>();
             foreach (JsonElement scenario in root.GetProperty(suiteKey).EnumerateArray())
             {
+                if (scenarioFilter is not null &&
+                    (scenario.GetProperty("name").GetString() ?? string.Empty) != scenarioFilter)
+                {
+                    continue;
+                }
+
                 results.Add(await RunScenarioAsync(scenario, commanders, barrierMs, callMs).ConfigureAwait(false));
+            }
+
+            if (scenarioFilter is not null && results.Count == 0)
+            {
+                results.Add((scenarioFilter, false, $"no scenario named '{scenarioFilter}' in suite '{suiteKey}'"));
             }
 
             bool allPass = results.All(r => r.Pass);
@@ -98,6 +114,7 @@ namespace Parley.TestPeer
                 c.Dispose();
             }
 
+            adapter.BeginShutdown();
             try
             {
                 await client.DisconnectAsync().ConfigureAwait(false);
@@ -154,6 +171,16 @@ namespace Parley.TestPeer
                     else if (step.TryGetProperty("cancel", out JsonElement cancel))
                     {
                         Named(named, cancel).Cts.Cancel();
+                    }
+                    else if (step.TryGetProperty("barrier", out JsonElement barrier))
+                    {
+                        // Driver rendezvous: print a flushed PARLEY-BARRIER line and continue. The
+                        // driver watches the log stream for this and performs the container action.
+                        string label = barrier.TryGetProperty("label", out JsonElement lbl)
+                            ? lbl.GetString() ?? name
+                            : name;
+                        Console.WriteLine($"PARLEY-BARRIER {label}");
+                        Console.Out.Flush();
                     }
                     else if (step.TryGetProperty("await", out JsonElement awaitStep))
                     {
