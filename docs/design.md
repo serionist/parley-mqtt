@@ -194,7 +194,24 @@ void loop() { commander.tick(millis()); handler.tick(millis()); }
 
 ArduinoJson codec; always the explicit-length publish overload; a full pool answers `$busy` per
 protocol.md H2, which is exactly why the pools can stay tiny (the `MaxCommands` template parameter
-supplies `maxActiveCommands`). A native desktop build runs the
+supplies `maxActiveCommands`).
+
+Static-allocation consequences (C++-only; wire-relevant where noted):
+
+- **Outbound-only adapter.** The C++ adapter carries `publish` (explicit length) +
+  `subscribe`/`unsubscribe` intent; inbound delivery, the connected notification, and
+  `tick(nowMs)` are methods on the commander/handler — no stored callback closures on a
+  no-heap target.
+- **`MaxPayload` bounds both wire directions** (defaulted template parameter): outbound
+  wire-byte caches AND inbound parse capacity. An inbound message longer than `MaxPayload` is
+  unparseable and silently dropped per protocol.md §4 — residuals: an oversize `req` ends in
+  the caller's `$noAck`; an oversize `res` lets the call reach its timeout. `MaxTombstones`
+  (defaulted, pool×4) statically sizes the tombstone table.
+- **Commander pool exhaustion is local.** A full `MaxInFlight` pool makes `execute()` fail
+  synchronously with an invalid-handle local error — never a `$` wire code.
+- **`kNoTimeout` disables the execution cap** via an explicit skip-scheduling branch — never
+  `start + kNoTimeout` arithmetic (uint32 wraparound) — parity with Python's `math.inf` and
+  TS's `null`. A native desktop build runs the
 same core against the conformance vectors without hardware.
 
 ## Where the logic lives

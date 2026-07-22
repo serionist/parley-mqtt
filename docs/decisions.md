@@ -234,3 +234,15 @@ revisit at each `update-deps` pass.
 **Rejected:** treating the reentrant C# lock as protection against synchronous re-entry (same
 thread re-enters mid-mutation); runner-level tolerance of one macrotask hop (would let a
 nonconformant dispatch pass).
+
+## 2026-07-22 — C++ static-allocation adjudications
+
+**(1)** An inbound message exceeding the fixed parse capacity (`MaxPayload`) is treated as
+unparseable and silently dropped — a documented local extension of §4's malformed-input posture
+to memory-limit overflow (identical observable: no parsed object). **(2)** The C++ adapter is
+outbound-only; inbound/connected/tick live on the library objects (no stored closures).
+**(3)** Commander pool exhaustion (`MaxInFlight` full) is a synchronous local failure, never a
+`$` wire code. **(4)** `kNoTimeout` is a skip-scheduling branch (wraparound-safe), completing
+the cap-disable parity set (C# `null` / TS `null` / Python `math.inf`).
+**Rejected:** an error reply for oversize inbound (amplification, same as malformed input); a
+`$`-code for local pool exhaustion (not a wire condition).
