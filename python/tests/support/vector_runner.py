@@ -24,6 +24,7 @@ from parley import (
 
 from .drain import drain
 from .fake_transport import FakeTransport, PublishAction, SubscribeAction
+from .json_equal import json_equal
 from .scripted_id_generator import ScriptedIdGenerator
 from .vector_handler import VectorHandler
 from .virtual_clock import VirtualClock
@@ -282,7 +283,7 @@ def _assert_expect(
                 if (
                     isinstance(action, PublishAction)
                     and action.topic == item["topic"]
-                    and json.loads(action.payload.decode("utf-8")) == item["msg"]
+                    and json_equal(json.loads(action.payload.decode("utf-8")), item["msg"])
                 ):
                     index = i
                     break
@@ -356,7 +357,7 @@ def _assert_outcomes(
                         f"Vector '{name}': call '{command_id}' expected absent/null payload but got "
                         f"{result.value!r}."
                     )
-            elif result.value != expected["p"]:
+            elif not json_equal(result.value, expected["p"]):
                 raise AssertionError(
                     f"Vector '{name}': call '{command_id}' payload mismatch. Expected {expected['p']!r}, "
                     f"got {result.value!r}."

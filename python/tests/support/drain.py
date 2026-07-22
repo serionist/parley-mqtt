@@ -6,9 +6,13 @@ task; each :func:`asyncio.sleep` ``(0)`` advances the ready queue by one generat
 injected :class:`VirtualClock` is independent), preserving the §10 timer-determinism equivalence. N=32
 is far deeper than any chain the synchronous core creates (max depth 1–3).
 
-Draining only ready-queue generations — never a real-timer boundary — means a publish the library
-(wrongly) deferred onto a real ``call_later(0)``/``loop`` hop is ABSENT at the next ``expect`` and the
-vector fails: exactly the discipline the drain enforces.
+What the drain enforces is virtual-clock determinism: every real Parley timer runs on the injected
+:class:`VirtualClock`, so a publish the core defers behind a positive delay is ABSENT at the next
+``expect`` until a step advances virtual time — it never rides a real-loop clock. The drain does NOT,
+however, forbid same-instant real-loop hops: :func:`asyncio.sleep` ``(0)`` is a full loop iteration
+(not a microtask flush), so a stray ``call_later(0)``/ready-queue hop would be absorbed within the
+32 generations and stay wire-invisible. The stronger "no real-loop timing at all" property is
+established by the sync-loopback and bounded-state tests plus review — not by this drain.
 """
 
 from __future__ import annotations

@@ -12,6 +12,14 @@ per-command cancellation signal AND cancels the handler-execution task (``task.c
 (library-initiated) it yields a ``$cancelled`` result via normal completion (cached + retried per H5);
 if not (external cancellation) it re-raises. A non-cancellation exception aborts the command like a
 thrown handler — never a leak.
+
+One asyncio-specific gap the wrapper cannot close: cancelling a task BEFORE its coroutine takes its
+first step (a ``cnl`` delivered in the same event-loop batch as the ``req``, before any drain) raises
+``CancelledError`` at the coroutine's entry point — the ``try`` never runs. ``_on_task_done`` is
+therefore the authoritative reconciliation point for a cancelled task: reading the command's own state
+(still ``_EXECUTING``), it drives the SAME terminal the wrapper would have — ``$cancelled`` via normal
+completion when the signal is aborted, or an abort otherwise. This has no analogue in JS/C#, which only
+signal cooperatively (a promise / ``CancellationToken``) and never cancel the execution task itself.
 """
 
 from __future__ import annotations
@@ -261,8 +269,43 @@ class ParleyCommandHandler(ABC, Generic[TRequest, TProgress, TResult, TError]):
         # finished (non-cancelled) task carries no exception during normal operation.
         self._tasks.discard(task)
         if task.cancelled():
+            # A cancelled task never reached _run_command's try/except discrimination: either the
+            # cancel landed BEFORE the coroutine's first step (CancelledError raised at the entry
+            # point, bypassing the try) or the wrapper deliberately re-raised an external cancel. This
+            # is the authoritative reconciliation point — drive the same terminal the wrapper would.
+            self._reconcile_cancelled_task(task)
             return
         task.exception()
+
+    def _reconcile_cancelled_task(self, task: asyncio.Task[None]) -> None:
+        # Reconcile from the command's own state, not a flag: if the wrapper DID run and completed
+        # (normal-return or catch-and-$cancelled), it left the command out of _EXECUTING (or removed
+        # it) and the task is NOT cancelled — so this method is not even reached. When it IS reached,
+        # the command is still _EXECUTING and no terminal has been driven.
+        if self._disposed:
+            # close() cancels + awaits these tasks itself and has already cleared all state.
+            return
+        cmd = self._find_executing_command(task)
+        if cmd is None:
+            return
+        if cmd.abort.aborted:
+            # Library-initiated cancel (a wire cnl whose task was cancelled before it could start):
+            # $cancelled via normal completion — cached and retried per H5, executing-count decremented.
+            self._complete_with_result(
+                cmd, self._builtin_error_bytes(cmd.id, ParleyBuiltinError.CANCELLED), True
+            )
+        else:
+            # External cancellation the library did not cause: abort like the started-task re-raise
+            # path — slot freed, heartbeat cancelled, id tombstoned, no result produced.
+            self._abort_executing(cmd)
+
+    def _find_executing_command(
+        self, task: asyncio.Task[None]
+    ) -> _HandlerCommand[TRequest, TProgress] | None:
+        for cmd in self._commands.values():
+            if cmd.task is task and cmd.state == _EXECUTING:
+                return cmd
+        return None
 
     async def _run_command(self, cmd: _HandlerCommand[TRequest, TProgress]) -> None:
         try:
@@ -450,6 +493,11 @@ class ParleyCommandHandler(ABC, Generic[TRequest, TProgress, TResult, TError]):
         **await** every execution task (retrieving exceptions), and clear all state. Idempotent. After
         close, inbound transport callbacks are ignored and in-flight handlers that later resolve are
         dropped (no publish).
+
+        Caveat: this awaits the cancelled tasks, so it only completes once each handler unwinds under
+        cancellation. The cancellation contract (design.md) is that handlers complete when cancelled;
+        a consumer handler that swallows ``CancelledError`` and never returns makes ``close()`` wait
+        unbounded on that task.
         """
         if self._disposed:
             return
