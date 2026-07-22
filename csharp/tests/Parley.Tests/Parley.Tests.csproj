@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!--
+      The core protocol runs single-threaded on a virtual clock, so terminal outcomes are available
+      synchronously off already-completed tasks; xUnit1031 (no blocking) and xUnit1051 (thread the test
+      CancellationToken) are test-style rules that don't apply to this deterministic replay harness.
+    -->
+    <NoWarn>$(NoWarn);xUnit1031;xUnit1051</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Parley/Parley.csproj" />
+  </ItemGroup>
+
+  <!-- The language-neutral conformance vectors (read-only), copied to the test output for discovery. -->
+  <ItemGroup>
+    <Content Include="../../../docs/conformance/*.json" LinkBase="conformance" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
