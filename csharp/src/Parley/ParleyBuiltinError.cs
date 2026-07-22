@@ -1,7 +1,7 @@
 namespace Parley
 {
     /// <summary>
-    /// The five builtin error codes reserved by the protocol (protocol.md §5). Their wire form is the
+    /// The builtin error codes reserved by the protocol (protocol.md §5). Their wire form is the
     /// matching <c>$</c>-prefixed string; consumer (custom) codes must never begin with <c>$</c>.
     /// </summary>
     public enum ParleyBuiltinError
@@ -20,5 +20,9 @@ namespace Parley
 
         /// <summary><c>$busy</c> — the handler refused admission because its command pool is full.</summary>
         Busy,
+
+        /// <summary><c>$decodeError</c> — a success <c>res</c> arrived but its payload did not deserialize to
+        /// the expected result type (a payload-contract mismatch). Commander-local; never sent on the wire.</summary>
+        DecodeError,
     }
 }

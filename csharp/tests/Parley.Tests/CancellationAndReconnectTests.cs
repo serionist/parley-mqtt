@@ -51,6 +51,57 @@ public sealed class CancellationAndReconnectTests
     }
 
     [Fact]
+    public void Commander_ExecuteWithAlreadyCancelledToken_PublishesCnl_NoDeadlock()
+    {
+        var clock = new FakeTimeProvider();
+        var transport = new FakeTransport();
+        var generator = new ScriptedCommandIdGenerator();
+        var commander = Commander(transport, clock, generator);
+        transport.ClearOutbound();
+
+        generator.Enqueue("A");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        // Registering on an already-cancelled token invokes RequestCancel synchronously, re-entering the gate
+        // (reentrant lock) — this must publish cnl without deadlocking or throwing.
+        Task<ParleyResult<JsonElement, string>> task = commander.ExecuteAsync(Json.Element("{}"), null, null, cts.Token);
+        Assert.Equal(1, transport.PublishCount("request", "cnl"));
+
+        // A $cancelled result then completes it promptly.
+        transport.Deliver("result", Wire.ResultError("A", "$cancelled"));
+        Assert.True(task.IsCompleted);
+        Assert.True(task.Result.IsError);
+        Assert.Equal("$cancelled", task.Result.Error.Code);
+    }
+
+    [Fact]
+    public void Commander_CancelAfterSuccessfulCompletion_NoCnl_NoThrow()
+    {
+        var clock = new FakeTimeProvider();
+        var transport = new FakeTransport();
+        var generator = new ScriptedCommandIdGenerator();
+        var commander = Commander(transport, clock, generator);
+        transport.ClearOutbound();
+
+        generator.Enqueue("A");
+        using var cts = new CancellationTokenSource();
+        Task<ParleyResult<JsonElement, string>> task = commander.ExecuteAsync(Json.Element("{}"), null, null, cts.Token);
+        transport.Deliver("heartbeat", Wire.Heartbeat("A"));
+        transport.Deliver("result", Wire.ResultOk("A", "{\"r\":1}"));
+        Assert.True(task.IsCompleted);
+        Assert.True(task.Result.IsSuccess);
+
+        transport.ClearOutbound();
+
+        // The registration was released on teardown (net10.0 Unregister); cancelling now must be a no-op.
+        cts.Cancel();
+
+        Assert.Equal(0, transport.PublishCount("request", "cnl"));
+        Assert.True(task.Result.IsSuccess); // result unchanged
+    }
+
+    [Fact]
     public void Handler_CancelExecuting_SignalsCancellationToken()
     {
         var clock = new FakeTimeProvider();

@@ -18,7 +18,7 @@ namespace Parley
     /// <typeparam name="TProgress">The progress payload type.</typeparam>
     /// <typeparam name="TResult">The result payload type.</typeparam>
     /// <typeparam name="TError">The consumer's custom error-code type.</typeparam>
-    public abstract class ParleyCommandHandler<TRequest, TProgress, TResult, TError>
+    public abstract class ParleyCommandHandler<TRequest, TProgress, TResult, TError> : IDisposable
     {
         private readonly ParleyConnectionAdapter _adapter;
         private readonly ParleyTopics _topics;
@@ -33,6 +33,7 @@ namespace Parley
         private readonly TombstoneTable _tombstones;
         private int _executingCount;
         private bool _dispatching;
+        private bool _disposed;
 
         /// <summary>Creates a handler for one command type.</summary>
         /// <param name="adapter">The transport adapter.</param>
@@ -91,6 +92,11 @@ namespace Parley
         {
             lock (_runtime.Gate)
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 SubscribeAll();
             }
         }
@@ -105,6 +111,11 @@ namespace Parley
 
             lock (_runtime.Gate)
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 switch (env.T)
                 {
                     case MessageTypes.Request:
@@ -155,9 +166,19 @@ namespace Parley
                 return;
             }
 
-            TRequest request = payload.HasValue
-                ? MessageCodec.FromElement(payload.Value, _requestTypeInfo)!
-                : default!;
+            TRequest request;
+            try
+            {
+                request = payload.HasValue
+                    ? MessageCodec.FromElement(payload.Value, _requestTypeInfo)!
+                    : default!;
+            }
+            catch (Exception ex) when (ex is JsonException or NotSupportedException)
+            {
+                // §4 robustness: a req whose payload does not decode to TRequest is silently ignored — no
+                // admission, no state, no reply.
+                return;
+            }
 
             var cmd = new HandlerCommand(id, request);
             cmd.Execution = new Execution(this, id, cmd.Cancellation.Token);
@@ -251,7 +272,10 @@ namespace Parley
                 // and state stays bounded. No result is produced; the commander ends via its own timers.
                 lock (_runtime.Gate)
                 {
-                    AbortExecuting(cmd);
+                    if (!_disposed)
+                    {
+                        AbortExecuting(cmd);
+                    }
                 }
 
                 return;
@@ -259,7 +283,27 @@ namespace Parley
 
             lock (_runtime.Gate)
             {
-                CompleteWithResult(cmd, BuildOutcomeBytes(cmd.Id, outcome), wasExecuting: true);
+                if (_disposed)
+                {
+                    return;
+                }
+
+                // CR3/AB1: build the outcome bytes BEFORE mutating any state. Serialization can throw (a TError
+                // that is not a plain JSON string / is $-reserved, or an unserializable TResult); the settled
+                // contract treats that exactly like a thrown handler — abort so the slot is freed, timers
+                // disposed, and the id tombstoned, rather than leaking the slot and heartbeat forever.
+                byte[] resultBytes;
+                try
+                {
+                    resultBytes = BuildOutcomeBytes(cmd.Id, outcome);
+                }
+                catch (Exception)
+                {
+                    AbortExecuting(cmd);
+                    return;
+                }
+
+                CompleteWithResult(cmd, resultBytes, wasExecuting: true);
             }
         }
 
@@ -297,8 +341,10 @@ namespace Parley
 
         private void OnResultRetry(HandlerCommand cmd)
         {
-            Publish(_topics.Result, cmd.CachedResultBytes!);
+            // Reschedule before publishing so a throwing adapter (CR4) never kills the retry cadence — the
+            // re-send self-heals once the adapter recovers.
             cmd.ResultRetryTimer!.Reschedule(_config.ResultRetryInterval);
+            Publish(_topics.Result, cmd.CachedResultBytes!);
         }
 
         private void MoveToTombstone(HandlerCommand cmd)
@@ -318,10 +364,12 @@ namespace Parley
 
         private void PublishHeartbeat(HandlerCommand cmd)
         {
-            byte[] bytes = MessageCodec.Serialize(new Envelope { V = MessageCodec.Version, T = MessageTypes.Heartbeat, Id = cmd.Id });
-            Publish(_topics.Heartbeat, bytes);
+            // AB3: the hb envelope is constant per id — serialize it once and reuse the cached bytes.
+            cmd.CachedHeartbeatBytes ??= MessageCodec.Serialize(
+                new Envelope { V = MessageCodec.Version, T = MessageTypes.Heartbeat, Id = cmd.Id });
 
-            // H3: one cadence per id, restarted by every hb publication.
+            // H3: one cadence per id, restarted by every hb publication. (Re)schedule BEFORE publishing so a
+            // throwing adapter (CR4) never kills the cadence.
             if (cmd.HeartbeatTimer is null)
             {
                 cmd.HeartbeatTimer = _runtime.Schedule(_config.HeartbeatInterval, () => PublishHeartbeat(cmd));
@@ -330,6 +378,8 @@ namespace Parley
             {
                 cmd.HeartbeatTimer.Reschedule(_config.HeartbeatInterval);
             }
+
+            Publish(_topics.Heartbeat, cmd.CachedHeartbeatBytes);
         }
 
         private void RepublishCachedResult(HandlerCommand cmd) => Publish(_topics.Result, cmd.CachedResultBytes!);
@@ -341,6 +391,11 @@ namespace Parley
         {
             lock (_runtime.Gate)
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 JsonElement? payload = MessageCodec.ToPayloadElement(progress, _progressTypeInfo);
                 byte[] bytes = MessageCodec.Serialize(new Envelope { V = MessageCodec.Version, T = MessageTypes.Progress, Id = id, P = payload });
                 Publish(_topics.Progress, bytes);
@@ -389,6 +444,61 @@ namespace Parley
             });
 
         private void Publish(string topic, byte[] bytes) => _adapter.Publish(topic, bytes);
+
+        /// <summary>
+        /// Disposes the handler (design.md): detaches the connected callback, unsubscribes the request topic,
+        /// disposes every per-command timer, signals and releases every command's cancellation source, and clears
+        /// all state. Idempotent. After disposal, inbound transport callbacks are ignored.
+        /// </summary>
+        public void Dispose()
+        {
+            var sources = new List<CancellationTokenSource>();
+
+            lock (_runtime.Gate)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                _disposed = true;
+
+                _adapter.Connected -= OnConnected;
+                _adapter.Unsubscribe(_topics.Request);
+
+                foreach (HandlerCommand cmd in _commands.Values)
+                {
+                    cmd.HeartbeatTimer?.Dispose();
+                    cmd.ResultRetryTimer?.Dispose();
+                    cmd.ResultRetryTimeoutTimer?.Dispose();
+                    cmd.HeartbeatTimer = null;
+                    cmd.ResultRetryTimer = null;
+                    cmd.ResultRetryTimeoutTimer = null;
+                    sources.Add(cmd.Cancellation);
+                }
+
+                _commands.Clear();
+                _queue.Clear();
+                _executingCount = 0;
+                _tombstones.Clear();
+            }
+
+            // Signal any executing handler to stop and release the sources OUTSIDE the gate, so consumer
+            // cancellation callbacks never run under it (mirror of the commander's registration handling).
+            foreach (CancellationTokenSource source in sources)
+            {
+                try
+                {
+                    source.Cancel();
+                }
+                catch
+                {
+                    // A consumer cancellation callback threw; disposal must still complete for the rest.
+                }
+
+                source.Dispose();
+            }
+        }
 
         // --- internal inspection hooks for the bounded-state tests ---
         internal int CommandCount
@@ -460,6 +570,8 @@ namespace Parley
             public Execution? Execution { get; set; }
 
             public LinkedListNode<HandlerCommand>? QueueNode { get; set; }
+
+            public byte[]? CachedHeartbeatBytes { get; set; }
 
             public byte[]? CachedResultBytes { get; set; }
 

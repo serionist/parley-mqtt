@@ -199,3 +199,20 @@ received in SENDING is terminal under C4's general rule (the ignore exception is
 **Rejected:** an "optional output" vector construct (would make conformance ambiguous per
 implementation); fixing a coincident-timer tie-break order (over-constrains implementations for
 no interop gain).
+
+## 2026-07-22 — Adjudications from the C# deep review
+
+The six-lens review of the reference implementation settled five cross-language contracts:
+**(1)** `$decodeError` — a sixth, commander-local-only builtin: a success result whose payload
+fails typed deserialization is `rak`ed (redelivery cannot fix a contract mismatch) and surfaces
+as `$decodeError`, not as a masqueraded `$executionStale`. Malformed progress payloads are
+dropped silently (C8: advisory). **(2)** Custom errors are string codes: `TError` ↔ the wire `e`
+string; `$`-prefix fail-fast; error `p` stays wire-legal but un-surfaced in v1. **(3)** A handler
+outcome that fails to serialize is treated exactly like a thrown handler (abort: slot freed,
+timers disposed, id tombstoned, commander degrades to `$executionStale`) — never a leak.
+**(4)** Adapter `subscribe` has replace-semantics (one handler per topic). **(5)** Commander and
+handler instances are disposable (detach subscriptions, complete in-flight calls locally with
+`$cancelled`); the C# `ParleyOutcome` implicit-conversion token structs are a C#-local inference
+idiom, not required of other languages.
+**Rejected:** silent-drop of undecodable results (hides integration bugs behind stale timeouts);
+surfacing structured error `p` in v1 (write side has no producer; revisit if demanded).

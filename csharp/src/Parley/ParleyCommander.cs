@@ -19,7 +19,7 @@ namespace Parley
     /// <typeparam name="TProgress">The progress payload type.</typeparam>
     /// <typeparam name="TResult">The result payload type.</typeparam>
     /// <typeparam name="TError">The consumer's custom error-code type.</typeparam>
-    public sealed class ParleyCommander<TRequest, TProgress, TResult, TError>
+    public sealed class ParleyCommander<TRequest, TProgress, TResult, TError> : IDisposable
     {
         private readonly ParleyConnectionAdapter _adapter;
         private readonly ParleyTopics _topics;
@@ -32,6 +32,7 @@ namespace Parley
         private readonly JsonTypeInfo<TError> _errorTypeInfo;
         private readonly Dictionary<string, Command> _inflight = new();
         private readonly TombstoneTable _tombstones;
+        private bool _disposed;
 
         /// <summary>Creates a commander for one command type.</summary>
         /// <param name="adapter">The transport adapter.</param>
@@ -83,6 +84,11 @@ namespace Parley
         {
             lock (_runtime.Gate)
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 SubscribeAll();
             }
         }
@@ -107,6 +113,11 @@ namespace Parley
 
             lock (_runtime.Gate)
             {
+                if (_disposed)
+                {
+                    throw new ObjectDisposedException("ParleyCommander");
+                }
+
                 string id = _idGenerator.NewCommandId();
                 if (!MessageCodec.IsValidId(id))
                 {
@@ -146,7 +157,7 @@ namespace Parley
         {
             lock (_runtime.Gate)
             {
-                if (!_inflight.TryGetValue(id, out Command? cmd) || cmd.Cancelling)
+                if (_disposed || !_inflight.TryGetValue(id, out Command? cmd) || cmd.Cancelling)
                 {
                     return;
                 }
@@ -168,15 +179,17 @@ namespace Parley
 
         private void OnRequestRetry(Command cmd)
         {
-            // Only armed while SENDING; re-publish and reschedule.
-            Publish(_topics.Request, cmd.RequestBytes!);
+            // Only armed while SENDING. Reschedule before publishing so a throwing adapter (CR4) never kills the
+            // cadence — the re-send self-heals once the adapter recovers.
             cmd.RequestRetryTimer!.Reschedule(cmd.Options.RequestRetryInterval);
+            Publish(_topics.Request, cmd.RequestBytes!);
         }
 
         private void OnCancelRetry(Command cmd)
         {
-            Publish(_topics.Request, cmd.CancelBytes!);
+            // Reschedule before publishing (see OnRequestRetry / CR4).
             cmd.CancelRetryTimer!.Reschedule(cmd.Options.CancelRetryInterval);
+            Publish(_topics.Request, cmd.CancelBytes!);
         }
 
         private void OnSignOfLifeExpiry(Command cmd)
@@ -210,6 +223,11 @@ namespace Parley
 
             lock (_runtime.Gate)
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 switch (expectedType)
                 {
                     case MessageTypes.Heartbeat:
@@ -244,7 +262,18 @@ namespace Parley
 
             if (cmd.Progress is { } sink)
             {
-                TProgress? value = payload.HasValue ? MessageCodec.FromElement(payload.Value, _progressTypeInfo) : default;
+                TProgress? value;
+                try
+                {
+                    value = payload.HasValue ? MessageCodec.FromElement(payload.Value, _progressTypeInfo) : default;
+                }
+                catch (Exception ex) when (ex is JsonException or NotSupportedException)
+                {
+                    // C8: progress delivery is advisory — a prg whose payload does not decode to TProgress is
+                    // dropped silently (the message still counted as a sign of life above).
+                    return;
+                }
+
                 sink.Report(value!);
             }
         }
@@ -269,20 +298,45 @@ namespace Parley
                     return;
                 }
 
-                // C4: rak every terminal res except $busy (the handler holds no state for a refused id).
-                if (!isBusy)
-                {
-                    PublishResultAck(id);
-                }
-
                 if (ok)
                 {
-                    TResult? value = env.P.HasValue ? MessageCodec.FromElement(env.P.Value, _resultTypeInfo) : default;
-                    CompleteSuccess(cmd, value);
+                    // C4: deserialize the payload BEFORE acking. A success payload that fails to decode to TResult
+                    // is a peer contract mismatch — still publish rak (the result WAS delivered; redelivery cannot
+                    // fix a mismatch) and terminate locally with the commander-local builtin $decodeError.
+                    TResult? value = default;
+                    bool decoded = true;
+                    try
+                    {
+                        if (env.P.HasValue)
+                        {
+                            value = MessageCodec.FromElement(env.P.Value, _resultTypeInfo);
+                        }
+                    }
+                    catch (Exception ex) when (ex is JsonException or NotSupportedException)
+                    {
+                        decoded = false;
+                    }
+
+                    PublishResultAck(id);
+
+                    if (decoded)
+                    {
+                        CompleteSuccess(cmd, value);
+                    }
+                    else
+                    {
+                        TerminateBuiltin(cmd, ParleyBuiltinError.DecodeError);
+                    }
                 }
                 else
                 {
-                    CompleteError(cmd, BuildError(env.E!, env.M, env.P));
+                    // C4: rak every terminal error res except $busy (the handler holds no state for a refused id).
+                    if (!isBusy)
+                    {
+                        PublishResultAck(id);
+                    }
+
+                    CompleteError(cmd, BuildError(env.E!, env.M));
                 }
 
                 return;
@@ -321,14 +375,15 @@ namespace Parley
             cmd.SignOfLifeTimer!.Reschedule(cmd.Options.StaleTimeout);
         }
 
-        private ParleyError<TError> BuildError(string code, string? message, JsonElement? errorPayload)
+        private ParleyError<TError> BuildError(string code, string? message)
         {
             if (ParleyErrorCodes.TryParse(code, out ParleyBuiltinError builtin))
             {
                 return new ParleyError<TError>(code, builtin, default, message, isBuiltin: true);
             }
 
-            TError? custom = ErrorCodec.WireToCustom(code, errorPayload, _errorTypeInfo);
+            // Custom errors derive from the e string code only (structured error p is not surfaced in v1).
+            TError? custom = ErrorCodec.WireToCustom(code, _errorTypeInfo);
             return new ParleyError<TError>(code, default, custom, message, isBuiltin: false);
         }
 
@@ -360,11 +415,24 @@ namespace Parley
             cmd.SignOfLifeTimer = null;
             cmd.ExecutionCapTimer = null;
             cmd.CancelRetryTimer = null;
-            cmd.CancellationRegistration.Dispose();
+            ReleaseCancellationRegistration(cmd.CancellationRegistration);
 
             _inflight.Remove(cmd.Id);
             // C5: every terminal outcome tombstones the id for tombstoneTtl.
             _tombstones.Add(cmd.Id, cmd.Options.TombstoneTtl);
+        }
+
+        // CR1: never block on the CancellationTokenRegistration while holding the gate. Dispose() waits for a
+        // concurrently-running RequestCancel callback, which needs the same gate → deadlock and a lost completion.
+        // net10.0 Unregister() is non-blocking; on netstandard2.0 (no Unregister) defer Dispose to the threadpool —
+        // RequestCancel is idempotent, so a late stale callback is harmless.
+        private static void ReleaseCancellationRegistration(CancellationTokenRegistration registration)
+        {
+#if NET10_0_OR_GREATER
+            registration.Unregister();
+#else
+            ThreadPool.QueueUserWorkItem(static state => ((CancellationTokenRegistration)state!).Dispose(), registration);
+#endif
         }
 
         private void PublishResultAck(string id)
@@ -374,6 +442,54 @@ namespace Parley
         }
 
         private void Publish(string topic, byte[] bytes) => _adapter.Publish(topic, bytes);
+
+        /// <summary>
+        /// Disposes the commander (design.md): detaches the connected callback, unsubscribes the library's topics,
+        /// disposes every per-command timer/registration, completes every in-flight call locally with <c>$cancelled</c>,
+        /// and clears all state. Idempotent. After disposal, <see cref="ExecuteAsync"/> throws
+        /// <see cref="ObjectDisposedException"/> and inbound transport callbacks are ignored.
+        /// </summary>
+        public void Dispose()
+        {
+            var registrations = new List<CancellationTokenRegistration>();
+
+            lock (_runtime.Gate)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                _disposed = true;
+
+                _adapter.Connected -= OnConnected;
+                _adapter.Unsubscribe(_topics.Heartbeat);
+                _adapter.Unsubscribe(_topics.Progress);
+                _adapter.Unsubscribe(_topics.Result);
+
+                var cancelled = ParleyResult<TResult, TError>.Failure(
+                    new ParleyError<TError>(ParleyErrorCodes.Cancelled, ParleyBuiltinError.Cancelled, default, null, isBuiltin: true));
+
+                foreach (Command cmd in _inflight.Values)
+                {
+                    cmd.RequestRetryTimer?.Dispose();
+                    cmd.SignOfLifeTimer?.Dispose();
+                    cmd.ExecutionCapTimer?.Dispose();
+                    cmd.CancelRetryTimer?.Dispose();
+                    registrations.Add(cmd.CancellationRegistration);
+                    cmd.CompletionSource.TrySetResult(cancelled);
+                }
+
+                _inflight.Clear();
+                _tombstones.Clear();
+            }
+
+            // CR1: release registrations outside the gate (Dispose() blocks on a concurrent RequestCancel callback).
+            foreach (CancellationTokenRegistration registration in registrations)
+            {
+                ReleaseCancellationRegistration(registration);
+            }
+        }
 
         private CommandOptions ResolveOptions(ParleyCallOptions? options)
         {

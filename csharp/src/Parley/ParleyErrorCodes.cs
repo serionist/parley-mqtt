@@ -3,7 +3,7 @@ using System;
 namespace Parley
 {
     /// <summary>
-    /// The wire strings for the five builtin error codes and helpers for mapping between the strings
+    /// The wire strings for the builtin error codes and helpers for mapping between the strings
     /// and <see cref="ParleyBuiltinError"/>.
     /// </summary>
     public static class ParleyErrorCodes
@@ -23,6 +23,9 @@ namespace Parley
         /// <summary><c>$busy</c>.</summary>
         public const string Busy = "$busy";
 
+        /// <summary><c>$decodeError</c> — commander-local only; never sent on the wire.</summary>
+        public const string DecodeError = "$decodeError";
+
         /// <summary>Returns the wire string for a builtin code.</summary>
         /// <param name="builtin">The builtin code.</param>
         /// <returns>The <c>$</c>-prefixed wire string.</returns>
@@ -33,6 +36,7 @@ namespace Parley
             ParleyBuiltinError.ExecutionTimeout => ExecutionTimeout,
             ParleyBuiltinError.Cancelled => Cancelled,
             ParleyBuiltinError.Busy => Busy,
+            ParleyBuiltinError.DecodeError => DecodeError,
             _ => throw new ArgumentOutOfRangeException(nameof(builtin), builtin, null),
         };
 
@@ -58,6 +62,9 @@ namespace Parley
                     return true;
                 case Busy:
                     builtin = ParleyBuiltinError.Busy;
+                    return true;
+                case DecodeError:
+                    builtin = ParleyBuiltinError.DecodeError;
                     return true;
                 default:
                     builtin = default;

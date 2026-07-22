@@ -1,0 +1,15 @@
+{
+  "name": "busy-in-live-does-not-reset-stale",
+  "role": "commander",
+  "rules": ["C4", "C2", "C3"],
+  "config": { "staleTimeout": 6000 },
+  "steps": [
+    { "at": 0, "call": { "id": "c1", "p": {} } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "c1", "p": {} } } ] },
+    { "at": 1000, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "c1" } } },
+    { "at": 3000, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "c1", "ok": false, "e": "$busy" } } },
+    { "at": 3000, "expect": [] },
+    { "at": 7000, "expect": [] }
+  ],
+  "outcomes": { "c1": { "ok": false, "e": "$executionStale" } }
+}

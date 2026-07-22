@@ -27,22 +27,33 @@ namespace Parley.Internal
         /// <summary>Schedules a one-shot callback after <paramref name="due"/>. The callback runs under the gate.</summary>
         internal ParleyTimer Schedule(TimeSpan due, Action callback)
         {
-            var timer = new ParleyTimer(this, callback);
-            timer.Timer = _timeProvider.CreateTimer(static state => ((ParleyTimer)state!).Fire(), timer, due, Timeout.InfiniteTimeSpan);
+            var timer = new ParleyTimer(this, _timeProvider, callback);
+            timer.Arm(due);
             LiveTimerCount++;
             return timer;
         }
 
-        private void Fire(ParleyTimer timer, Action callback)
+        private void Fire(ParleyTimer timer, int generation, Action callback)
         {
             lock (Gate)
             {
-                if (timer.Disposed)
+                // CR2: ITimer.Change / Dispose do not unqueue an already-queued callback. A Reschedule bumps the
+                // generation, so a stale pre-reschedule fire (or a disposed timer's late fire) is ignored here.
+                if (timer.Disposed || generation != timer.Generation)
                 {
                     return;
                 }
 
-                callback();
+                try
+                {
+                    callback();
+                }
+                catch
+                {
+                    // CR4: adapter faults (e.g. Publish on a disconnected/disposed client) must never escape onto
+                    // library timer threads — an escaped exception would tear down the process. Retries reschedule
+                    // before publishing, so delivery is self-healing once the adapter recovers.
+                }
             }
         }
 
@@ -55,19 +66,42 @@ namespace Parley.Internal
         internal sealed class ParleyTimer
         {
             private readonly ParleyRuntime _runtime;
+            private readonly TimeProvider _timeProvider;
             private readonly Action _callback;
+            private ITimer? _timer;
 
-            internal ParleyTimer(ParleyRuntime runtime, Action callback)
+            internal ParleyTimer(ParleyRuntime runtime, TimeProvider timeProvider, Action callback)
             {
                 _runtime = runtime;
+                _timeProvider = timeProvider;
                 _callback = callback;
             }
 
-            internal ITimer? Timer { get; set; }
-
             internal bool Disposed { get; private set; }
 
-            internal void Fire() => _runtime.Fire(this, _callback);
+            /// <summary>Monotonic arm counter (CR2): every Schedule/Reschedule bumps it and captures it into the
+            /// fresh OS-timer registration, so <see cref="ParleyRuntime.Fire"/> can reject a stale queued fire.</summary>
+            internal int Generation { get; private set; }
+
+            /// <summary>Arms (or re-arms) the underlying timer with a fresh generation. Must be called under the gate.</summary>
+            internal void Arm(TimeSpan due)
+            {
+                Generation++;
+                int generation = Generation;
+
+                // A new registration per arm carries the generation to the eventual Fire (Change cannot rebind
+                // the callback state, so an already-queued fire keeps its old generation and is rejected).
+                _timer?.Dispose();
+                _timer = _timeProvider.CreateTimer(
+                    static state =>
+                    {
+                        var (self, gen) = ((ParleyTimer, int))state!;
+                        self._runtime.Fire(self, gen, self._callback);
+                    },
+                    (this, generation),
+                    due,
+                    Timeout.InfiniteTimeSpan);
+            }
 
             /// <summary>Re-arms this timer to fire once more after <paramref name="due"/>. Must be called under the gate.</summary>
             internal void Reschedule(TimeSpan due)
@@ -77,7 +111,7 @@ namespace Parley.Internal
                     return;
                 }
 
-                Timer!.Change(due, Timeout.InfiniteTimeSpan);
+                Arm(due);
             }
 
             /// <summary>Stops and releases the timer. Idempotent. Must be called under the gate.</summary>
@@ -89,7 +123,7 @@ namespace Parley.Internal
                 }
 
                 Disposed = true;
-                Timer!.Dispose();
+                _timer!.Dispose();
                 _runtime.OnTimerDisposed();
             }
         }

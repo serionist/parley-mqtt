@@ -76,6 +76,7 @@ internal static class VectorRunner
         {
             JsonObject step = stepNode!.AsObject();
             long at = step["at"]!.GetValue<long>();
+            EnsureSingleDirective(name, step);
             AdvanceTo(time, ref currentAt, at);
 
             if (step["call"] is JsonObject call)
@@ -112,6 +113,8 @@ internal static class VectorRunner
             }
         }
 
+        // TQ1: every outbound action must have been asserted by an expect — nothing left unaccounted for.
+        AssertOutboxEmpty(name, transport);
         AssertOutcomes(name, outcomes, tasks);
     }
 
@@ -134,6 +137,7 @@ internal static class VectorRunner
         {
             JsonObject step = stepNode!.AsObject();
             long at = step["at"]!.GetValue<long>();
+            EnsureSingleDirective(name, step);
             AdvanceTo(time, ref currentAt, at);
 
             if (step["in"] is JsonObject inbound)
@@ -157,6 +161,39 @@ internal static class VectorRunner
             {
                 throw new InvalidOperationException($"Vector {name}: unrecognized step {step.ToJsonString()}.");
             }
+        }
+
+        // TQ1: every outbound action must have been asserted by an expect — nothing left unaccounted for.
+        AssertOutboxEmpty(name, transport);
+    }
+
+    private static readonly string[] DirectiveKeys = { "call", "cancel", "in", "handler", "connected", "expect" };
+
+    private static void EnsureSingleDirective(string name, JsonObject step)
+    {
+        int count = 0;
+        foreach (string key in DirectiveKeys)
+        {
+            if (step.ContainsKey(key))
+            {
+                count++;
+            }
+        }
+
+        if (count != 1)
+        {
+            throw new InvalidOperationException(
+                $"Vector '{name}': each step must carry exactly one directive, found {count}: {step.ToJsonString()}");
+        }
+    }
+
+    private static void AssertOutboxEmpty(string name, FakeTransport transport)
+    {
+        if (transport.Outbound.Count > 0)
+        {
+            Assert.Fail(
+                $"Vector '{name}': {transport.Outbound.Count} outbound action(s) left unasserted after the final " +
+                $"step: {Dump(transport.Outbound)}");
         }
     }
 
@@ -248,6 +285,13 @@ internal static class VectorRunner
         JsonObject? outcomes,
         Dictionary<string, Task<ParleyResult<JsonElement, string>>> tasks)
     {
+        // TQ2(a): every started call must have a declared expected outcome — nothing silently unasserted.
+        foreach (string startedId in tasks.Keys)
+        {
+            Assert.True(outcomes is not null && outcomes.ContainsKey(startedId),
+                $"Vector '{name}': call '{startedId}' was started but has no expected outcome declared.");
+        }
+
         if (outcomes is null)
         {
             return;
@@ -270,11 +314,21 @@ internal static class VectorRunner
             {
                 Assert.True(result.IsSuccess,
                     $"Vector '{name}': call '{id}' expected success but got error '{(result.IsError ? result.Error.Code : "?")}'.");
-                if (expected["p"] is JsonNode expectedPayload)
+
+                // TQ2(b): a JsonObject property with an absent or JSON-null value both surface as a null node —
+                // in either case the actual payload must be absent/null too, not merely skipped.
+                JsonNode? expectedPayload = expected["p"];
+                JsonNode? actualPayload = result.Value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+                    ? null
+                    : JsonNode.Parse(result.Value.GetRawText());
+
+                if (expectedPayload is null)
                 {
-                    JsonNode? actualPayload = result.Value.ValueKind == JsonValueKind.Undefined
-                        ? null
-                        : JsonNode.Parse(result.Value.GetRawText());
+                    Assert.True(actualPayload is null,
+                        $"Vector '{name}': call '{id}' expected absent/null payload but got {actualPayload?.ToJsonString() ?? "null"}.");
+                }
+                else
+                {
                     Assert.True(JsonComparer.Equal(actualPayload, expectedPayload),
                         $"Vector '{name}': call '{id}' payload mismatch. Expected {expectedPayload.ToJsonString()}, got {actualPayload?.ToJsonString() ?? "null"}.");
                 }

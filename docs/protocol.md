@@ -111,6 +111,7 @@ Error codes are strings. Codes beginning with `$` are **reserved for the protoco
 | `$executionTimeout` | commander-local | overall execution cap expired — handler alive but the command never finished |
 | `$cancelled` | wire (`res`) | the command was cancelled before producing a result |
 | `$busy` | wire (`res`) | the handler refused admission: its per-command state pool is full |
+| `$decodeError` | commander-local | a success `res` arrived but its payload did not deserialize to the expected result type — a payload-contract mismatch between peers |
 
 Custom codes flow only inside error `res` messages (`e` field) and are surfaced to the consumer
 typed (the error-code generic parameter in each language binding).
@@ -135,7 +136,10 @@ Per command, a commander is in one of: **SENDING** → **LIVE** → terminal (**
   a `$busy` `res` received in LIVE MUST be ignored — the handler sends `$busy` only for unadmitted
   ids and a sign of life proves admission, so such a message can only be a stale, reordered
   pre-admission reply. (In SENDING, a `$busy` `res` is simply terminal under the general rule —
-  the ignore exception is scoped to LIVE.)
+  the ignore exception is scoped to LIVE.) An ignored `$busy` is not a sign of life and does not
+  reset the sliding window. If a success payload fails to deserialize to the expected result
+  type, the commander MUST still publish `rak` (the result was delivered; redelivery cannot fix a
+  contract mismatch) and terminates locally with `$decodeError`.
 - **C5 — tombstone.** On *any* terminal outcome the id enters the tombstone table for
   `tombstoneTtl`. A `res` received for a tombstoned id → re-publish `rak` (unless `e:"$busy"`) and
   discard the content. This stops a handler's result retries even when the commander already gave
@@ -298,8 +302,9 @@ expressible.
 Determinism rules: all timer expirations due at or before a step's `at` fire before that step
 executes; steps sharing an `at` run in file order; command ids in commander vectors come from the
 scripted `call.id` values (the injectable §4.2 generator is bypassed by the runner). Vectors MUST
-NOT schedule two timer expirations at the same instant — implementations MAY fire coincident
-timers in any order. Runners construct the library instance before step 0; construction-time
+NOT schedule two timer expirations at the same instant when their relative order affects any
+`expect` set or outcome — implementations MAY fire coincident timers in any order, so only
+order-independent coincidences (e.g. two per-id heartbeats due together) are permitted. Runners construct the library instance before step 0; construction-time
 subscribe calls are not asserted — only subscribe actions following an explicit `connected` step
 appear in `expect` sets.
 

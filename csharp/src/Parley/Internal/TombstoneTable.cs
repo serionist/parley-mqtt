@@ -56,6 +56,18 @@ namespace Parley.Internal
             }
         }
 
+        /// <summary>Disposes every entry's TTL timer and empties the table (used on instance disposal).</summary>
+        internal void Clear()
+        {
+            foreach (Entry entry in _entries.Values)
+            {
+                entry.Timer.Dispose();
+            }
+
+            _entries.Clear();
+            _order.Clear();
+        }
+
         private sealed class Entry
         {
             public Entry(LinkedListNode<string> node, ParleyRuntime.ParleyTimer timer)

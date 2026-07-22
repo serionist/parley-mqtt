@@ -30,8 +30,19 @@ internal sealed class FakeTransport : ParleyConnectionAdapter
 
     public List<OutboundAction> Outbound { get; } = new();
 
-    public override void Publish(string topic, ReadOnlyMemory<byte> payload) =>
+    /// <summary>When set, <see cref="Publish"/> throws — simulates a disconnected/disposed underlying client
+    /// so tests can prove adapter faults never escape onto Parley-owned timer threads (CR4).</summary>
+    public bool FailPublish { get; set; }
+
+    public override void Publish(string topic, ReadOnlyMemory<byte> payload)
+    {
+        if (FailPublish)
+        {
+            throw new InvalidOperationException("FakeTransport: publish failed (simulated adapter fault).");
+        }
+
         Outbound.Add(OutboundAction.Publish(topic, payload.ToArray()));
+    }
 
     public override void Subscribe(string topic, Action<string, ReadOnlyMemory<byte>> handler)
     {

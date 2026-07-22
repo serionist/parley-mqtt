@@ -17,11 +17,29 @@ a design smell to justify in [`decisions.md`](decisions.md), not a free choice.
 | `ParleyCallOptions` | per-call overrides: commander-local timeouts (+ the progress sink where idiomatic) |
 | `ParleyResult` | terminal outcome: success with the result payload, or an error (builtin or custom code) |
 
-Construction is uniform: `(adapter, topics, config)` plus the type bindings each language needs.
-Commander and handler each own their subscriptions through the adapter and re-subscribe on its
-connected signal. Expected outcomes (all five builtin codes, custom errors) are returned as
-values — never thrown/rejected across the API boundary; exceptions are reserved for programming
-errors (bad config, misuse).
+Construction is uniform: `(adapter, topics, config)` plus the type bindings each language needs,
+and two uniform injectable seams — the command-id generator (protocol.md §4.2) and the clock —
+defaulted in production, overridden by the test suites. Commander and handler each own their
+subscriptions through the adapter and re-subscribe on its connected signal. Expected outcomes
+(all builtin codes, custom errors) are returned as values — never thrown/rejected across the API
+boundary; exceptions are reserved for programming errors (bad config, misuse).
+
+Cross-language contracts settled by the reference implementation:
+
+- **Custom errors are string codes.** A `TError` maps to the wire `e` string; it must serialize
+  to a plain JSON string, and `$`-prefixed values are rejected fail-fast (§5). The optional `m`
+  detail surfaces as `Error.Message` alongside `Error.Code` (the raw wire string). Structured
+  error `p` remains wire-legal (§4.1) but is not surfaced by the v1 APIs.
+- **Instances are disposable.** Disposing a commander/handler detaches its adapter subscriptions
+  and the connected callback, and completes any in-flight calls locally with `$cancelled`.
+- **Adapter `subscribe` replaces.** `subscribe(topic, onMessage)` replaces any prior handler for
+  that topic (one handler per topic) — the library re-subscribes on every connected signal
+  without unsubscribing first; an appending adapter would multiply-deliver.
+- **Commander in-flight is timer-bounded, not pool-bounded, in the managed languages.** Every
+  call carries a guaranteed terminal timer, so in-flight state drains by construction; C++'s
+  `MaxInFlight` pool is a static-allocation necessity, not a protocol cap.
+- **Handlers should yield early.** The synchronous prefix of the handle method runs on the
+  library's dispatch path; heavy synchronous work delays other commands' heartbeats.
 
 ## The transport adapter
 

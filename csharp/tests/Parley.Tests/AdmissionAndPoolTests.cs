@@ -15,25 +15,29 @@ public sealed class AdmissionAndPoolTests
     [Fact]
     public void ConcurrentDuplicateRequests_AdmitExactlyOnce()
     {
-        var clock = new FakeTimeProvider();
-        var transport = new FakeTransport();
-        var handler = new VectorHandler(transport, Topics, new ParleyConfig(), clock);
-        transport.ClearOutbound();
-
-        // Deliver the same req id from two threads simultaneously.
-        using var barrier = new Barrier(2);
-        void Deliver()
+        // Loop the race so a scheduling fluke cannot let a broken admission pass by luck (fresh handler each).
+        for (int iteration = 0; iteration < 50; iteration++)
         {
-            barrier.SignalAndWait();
-            transport.Deliver("request", Wire.Request("A"));
+            var clock = new FakeTimeProvider();
+            var transport = new FakeTransport();
+            var handler = new VectorHandler(transport, Topics, new ParleyConfig(), clock);
+            transport.ClearOutbound();
+
+            // Deliver the same req id from two threads simultaneously.
+            using var barrier = new Barrier(2);
+            void Deliver()
+            {
+                barrier.SignalAndWait();
+                transport.Deliver("request", Wire.Request("A"));
+            }
+
+            Task.WaitAll(Task.Run(Deliver), Task.Run(Deliver));
+
+            Assert.Equal(1, handler.CommandCount);       // dedup + capacity + admit is atomic — exactly one admission
+            Assert.Equal(1, handler.ExecutingCount);
+            Assert.Equal(0, transport.PublishCount("result", "res"));       // never $busy for a duplicate
+            Assert.Equal(2, transport.PublishCount("heartbeat", "hb"));     // admission hb + H1 duplicate hb
         }
-
-        Task.WaitAll(Task.Run(Deliver), Task.Run(Deliver));
-
-        Assert.Equal(1, handler.CommandCount);       // dedup + capacity + admit is atomic — exactly one admission
-        Assert.Equal(1, handler.ExecutingCount);
-        Assert.Equal(0, transport.PublishCount("result", "res"));       // never $busy for a duplicate
-        Assert.Equal(2, transport.PublishCount("heartbeat", "hb"));     // admission hb + H1 duplicate hb
     }
 
     [Fact]

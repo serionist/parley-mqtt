@@ -35,24 +35,13 @@ namespace Parley.Internal
         }
 
         /// <summary>
-        /// Produces the typed custom error for a received wire code. Structured error data in <paramref name="errorPayload"/>
-        /// is preferred when present; otherwise the code string itself is deserialized. Best-effort: returns
-        /// <see langword="default"/> if neither can be mapped onto <typeparamref name="TError"/>.
+        /// Produces the typed custom error for a received wire code. Per the settled cross-language contract, a
+        /// custom error is derived from the <c>e</c> string code only — structured error <c>p</c> stays wire-legal
+        /// (§4.1) but is not surfaced by the v1 APIs. Best-effort: returns <see langword="default"/> if the code
+        /// string does not map onto <typeparamref name="TError"/>.
         /// </summary>
-        internal static TError? WireToCustom<TError>(string code, JsonElement? errorPayload, JsonTypeInfo<TError> typeInfo)
+        internal static TError? WireToCustom<TError>(string code, JsonTypeInfo<TError> typeInfo)
         {
-            if (errorPayload.HasValue)
-            {
-                try
-                {
-                    return errorPayload.Value.Deserialize(typeInfo);
-                }
-                catch (JsonException)
-                {
-                    // Fall through to the code-string mapping.
-                }
-            }
-
             try
             {
                 using var stream = new MemoryStream();
