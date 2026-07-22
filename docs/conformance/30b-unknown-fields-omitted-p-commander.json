@@ -1,0 +1,13 @@
+{
+  "name": "robustness-unknown-fields-and-omitted-p-commander",
+  "role": "commander",
+  "rules": ["§4"],
+  "config": {},
+  "steps": [
+    { "at": 0, "call": { "id": "A", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 500, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "bonus": "xyz" } } },
+    { "at": 500, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } ] }
+  ],
+  "outcomes": { "A": { "ok": true } }
+}

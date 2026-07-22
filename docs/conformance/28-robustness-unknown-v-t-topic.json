@@ -1,0 +1,16 @@
+{
+  "name": "robustness-unknown-v-unknown-t-wrong-topic",
+  "role": "handler",
+  "rules": ["§4"],
+  "config": {},
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 2, "t": "req", "id": "A", "p": {} } } },
+    { "at": 0, "expect": [] },
+    { "at": 100, "in": { "topic": "request", "msg": { "v": 1, "t": "zzz", "id": "A", "p": {} } } },
+    { "at": 100, "expect": [] },
+    { "at": 200, "in": { "topic": "request", "msg": { "v": 1, "t": "hb", "id": "A" } } },
+    { "at": 200, "expect": [] },
+    { "at": 300, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": {} } } },
+    { "at": 300, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] }
+  ]
+}

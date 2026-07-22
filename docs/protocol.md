@@ -134,7 +134,8 @@ Per command, a commander is in one of: **SENDING** → **LIVE** → terminal (**
   for which `rak` MUST NOT be sent (the handler holds no state for a refused id). One exception:
   a `$busy` `res` received in LIVE MUST be ignored — the handler sends `$busy` only for unadmitted
   ids and a sign of life proves admission, so such a message can only be a stale, reordered
-  pre-admission reply.
+  pre-admission reply. (In SENDING, a `$busy` `res` is simply terminal under the general rule —
+  the ignore exception is scoped to LIVE.)
 - **C5 — tombstone.** On *any* terminal outcome the id enters the tombstone table for
   `tombstoneTtl`. A `res` received for a tombstoned id → re-publish `rak` (unless `e:"$busy"`) and
   discard the content. This stops a handler's result retries even when the commander already gave
@@ -161,7 +162,7 @@ Per admitted command, a handler tracks: **QUEUED** → **EXECUTING** → **RESUL
 
 - **H1 — dedup before capacity.** On `req`, look up the id in the dedup table **first**; the
   capacity check applies only to unknown ids. For a duplicate of an admitted id: QUEUED/EXECUTING
-  → SHOULD publish an immediate `hb` (resynchronizes the commander cheaply); RESULT-CACHED →
+  → MUST publish an immediate `hb` (resynchronizes the commander cheaply); RESULT-CACHED →
   re-publish the cached `res` immediately; tombstoned → ignore. A duplicate of an admitted id
   MUST NOT receive `$busy`, even while the handler is full for new ids.
 - **H2 — admission / Busy.** For an unknown id with a free command slot (`maxActiveCommands`,
@@ -172,7 +173,10 @@ Per admitted command, a handler tracks: **QUEUED** → **EXECUTING** → **RESUL
   of that id while full. A lost `$busy` self-heals through the commander's request retries.
 - **H3 — heartbeats from admission.** From admission until the command's first `res` is
   published, publish `hb` for the id every `heartbeatInterval`. Queued commands heartbeat exactly
-  like executing ones — a caller can never conclude "unreachable" from "busy".
+  like executing ones — a caller can never conclude "unreachable" from "busy". There is one
+  heartbeat cadence per id, restarted by every `hb` publication for it — the admission heartbeat,
+  a periodic one, or an H1 duplicate response each schedule the next `hb` `heartbeatInterval`
+  later.
 - **H4 — execution.** Dequeue FIFO into at most `maxConcurrentExecutions` slots (default 1 —
   serial). The consumer's handler receives the request payload, a progress emitter (each call
   publishes one `prg`), and a cancellation signal.
@@ -184,7 +188,7 @@ Per admitted command, a handler tracks: **QUEUED** → **EXECUTING** → **RESUL
   whatever the handler produces (an aborted handler yields an error `res` with `e:"$cancelled"`).
   QUEUED → remove from the queue and publish an error `res` `$cancelled` (cached and retried per
   H5). RESULT-CACHED → re-publish the cached `res` (cancel lost the race). Unknown or tombstoned
-  id → SHOULD publish a **stateless** error `res` `$cancelled` (mirror of `$busy`: no state, no
+  id → MUST publish a **stateless** error `res` `$cancelled` (mirror of `$busy`: no state, no
   `rak` expected — it only exists to terminate the caller quickly).
 
   *Note:* rule C4 has the commander `rak` a stateless H7 `$cancelled`; the handler ignores it per
@@ -210,7 +214,7 @@ Defaults (all overridable; commander-local values also per-call):
 | `cancelRetryInterval` | commander | 2 s | C7 |
 | `heartbeatInterval` | handler | 3 s | H3 |
 | `resultRetryInterval` | handler | 2 s | H5 |
-| `resultRetryTimeout` | handler | 30 s | H5 |
+| `resultRetryTimeout` | handler | 30 s | H5 — measured from the first `res` publication |
 | `tombstoneTtl` | both | 60 s | C5 / H5 |
 | `maxConcurrentExecutions` | handler | 1 | H4 — serial by default |
 | `maxActiveCommands` | handler | 32 | H2/H8 — admission cap; slot held from admission through RESULT-CACHED, freed at the tombstone transition |
@@ -293,7 +297,11 @@ expressible.
 
 Determinism rules: all timer expirations due at or before a step's `at` fire before that step
 executes; steps sharing an `at` run in file order; command ids in commander vectors come from the
-scripted `call.id` values (the injectable §4.2 generator is bypassed by the runner).
+scripted `call.id` values (the injectable §4.2 generator is bypassed by the runner). Vectors MUST
+NOT schedule two timer expirations at the same instant — implementations MAY fire coincident
+timers in any order. Runners construct the library instance before step 0; construction-time
+subscribe calls are not asserted — only subscribe actions following an explicit `connected` step
+appear in `expect` sets.
 
 Required scenarios (minimum set):
 
@@ -306,7 +314,8 @@ Required scenarios (minimum set):
 7. result retry until rak (H5)
 8. late res after commander terminal → tombstone rak re-emit (C5)
 9. `$busy` stateless re-emit while full (H2)
-10. lost `$busy` self-heal via request retry (H2)
+10. lost `$busy` self-heal via request retry (C1/H2 — commander-side: the C1 retry elicits the
+    re-emitted `$busy`)
 11. dedup precedes capacity — duplicate of admitted id on a full handler → hb, not `$busy` (H1)
 12. cancel mid-execution → `$cancelled` (C7/H7)
 13. cancel racing completion → cached res re-published, commander accepts it (H7)

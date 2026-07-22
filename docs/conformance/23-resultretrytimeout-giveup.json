@@ -1,0 +1,15 @@
+{
+  "name": "resultretrytimeout-giveup",
+  "role": "handler",
+  "rules": ["H5"],
+  "config": { "resultRetryInterval": 2000, "resultRetryTimeout": 5000 },
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] },
+    { "at": 100, "handler": { "id": "A", "action": "complete", "p": { "r": 1 } } },
+    { "at": 100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } ] },
+    { "at": 2100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } ] },
+    { "at": 4100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } ] },
+    { "at": 6100, "expect": [] }
+  ]
+}

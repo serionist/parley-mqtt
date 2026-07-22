@@ -1,0 +1,17 @@
+{
+  "name": "late-res-after-terminal-tombstone-rak",
+  "role": "commander",
+  "rules": ["C3", "C5"],
+  "config": { "requestRetryInterval": 2000, "noAckTimeout": 7000 },
+  "steps": [
+    { "at": 0, "call": { "id": "c8", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "c8", "p": { "x": 1 } } } ] },
+    { "at": 2000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "c8", "p": { "x": 1 } } } ] },
+    { "at": 4000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "c8", "p": { "x": 1 } } } ] },
+    { "at": 6000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "c8", "p": { "x": 1 } } } ] },
+    { "at": 7000, "expect": [] },
+    { "at": 8000, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "c8", "ok": true, "p": { "y": 2 } } } },
+    { "at": 8000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "c8" } } ] }
+  ],
+  "outcomes": { "c8": { "ok": false, "e": "$noAck" } }
+}

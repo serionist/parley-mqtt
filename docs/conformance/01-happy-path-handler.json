@@ -1,0 +1,14 @@
+{
+  "name": "happy-path-handler",
+  "role": "handler",
+  "rules": ["H2", "H5"],
+  "config": {},
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "cmd1", "p": { "greeting": "こんにちは 🌍", "count": 42, "nested": { "pi": 3.14, "flag": true } } } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "cmd1" } } ] },
+    { "at": 100, "handler": { "id": "cmd1", "action": "complete", "p": { "echo": "こんにちは 🌍", "count": 42 } } },
+    { "at": 100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "cmd1", "ok": true, "p": { "echo": "こんにちは 🌍", "count": 42 } } } ] },
+    { "at": 200, "in": { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "cmd1" } } },
+    { "at": 200, "expect": [] }
+  ]
+}

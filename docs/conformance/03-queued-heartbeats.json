@@ -1,0 +1,23 @@
+{
+  "name": "queued-command-heartbeats",
+  "role": "handler",
+  "rules": ["H2", "H3", "H4"],
+  "config": {},
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": {} } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] },
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "B", "p": {} } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "B" } } ] },
+    { "at": 3000, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } }, { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "B" } } ] },
+    { "at": 6000, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } }, { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "B" } } ] },
+    { "at": 6100, "handler": { "id": "A", "action": "complete", "p": { "r": 1 } } },
+    { "at": 6100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } ] },
+    { "at": 6200, "in": { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } },
+    { "at": 6200, "expect": [] },
+    { "at": 9000, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "B" } } ] },
+    { "at": 9100, "handler": { "id": "B", "action": "complete", "p": { "r": 2 } } },
+    { "at": 9100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "B", "ok": true, "p": { "r": 2 } } } ] },
+    { "at": 9200, "in": { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "B" } } },
+    { "at": 9200, "expect": [] }
+  ]
+}

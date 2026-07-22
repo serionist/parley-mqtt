@@ -1,0 +1,17 @@
+{
+  "name": "commander-tombstone-expiry-late-res-ignored",
+  "role": "commander",
+  "rules": ["C5"],
+  "config": { "tombstoneTtl": 5000 },
+  "steps": [
+    { "at": 0, "call": { "id": "A", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 500, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } },
+    { "at": 500, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } ] },
+    { "at": 1000, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } },
+    { "at": 1000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } ] },
+    { "at": 6000, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } },
+    { "at": 6000, "expect": [] }
+  ],
+  "outcomes": { "A": { "ok": true, "p": { "r": 1 } } }
+}

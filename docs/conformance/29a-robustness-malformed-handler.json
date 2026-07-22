@@ -1,0 +1,18 @@
+{
+  "name": "robustness-unparseable-missing-id-invalid-id",
+  "role": "handler",
+  "rules": ["§4", "§4.2"],
+  "config": {},
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "raw": "not json {{{" } },
+    { "at": 0, "expect": [] },
+    { "at": 100, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "p": {} } } },
+    { "at": 100, "expect": [] },
+    { "at": 200, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "bad id!", "p": {} } } },
+    { "at": 200, "expect": [] },
+    { "at": 300, "in": { "topic": "request", "raw": "[1,2,3]" } },
+    { "at": 300, "expect": [] },
+    { "at": 400, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": {} } } },
+    { "at": 400, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] }
+  ]
+}

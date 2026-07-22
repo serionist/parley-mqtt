@@ -184,3 +184,18 @@ eviction; per-language suites include sustained-load steady-state tests proving 
 **Why:** the targets are long-running processes on very small hardware (the JS build especially:
 Shelly-class edge engines); a slow leak is a field failure.
 **Rejected:** relying on GC/idle churn; unbounded caches with "practically never grows" arguments.
+
+## 2026-07-22 — Conformance adjudications from vector authoring
+
+Authoring the 40 vectors from the spec text surfaced six underdetermined points; adjudicated as:
+**(1)** H1's immediate `hb` for a QUEUED/EXECUTING duplicate and **(2)** H7's stateless
+`$cancelled` for an unknown-id cancel are promoted SHOULD → MUST — an exact-set conformance
+runner cannot express optional output, and uniform behavior across four languages is the
+project's point. **(3)** One heartbeat cadence per id, restarted by every `hb` publication.
+**(4)** `resultRetryTimeout` is measured from the first `res` publication. **(5)** Vectors must
+not schedule coincident timer expirations (implementations stay free on the tie-break);
+construction-time subscribes are not asserted, only post-`connected` ones. **(6)** A `$busy`
+received in SENDING is terminal under C4's general rule (the ignore exception is LIVE-scoped).
+**Rejected:** an "optional output" vector construct (would make conformance ambiguous per
+implementation); fixing a coincident-timer tie-break order (over-constrains implementations for
+no interop gain).

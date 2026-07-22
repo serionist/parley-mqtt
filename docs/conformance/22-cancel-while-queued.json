@@ -1,0 +1,18 @@
+{
+  "name": "cancel-while-queued",
+  "role": "handler",
+  "rules": ["H5", "H7"],
+  "config": { "heartbeatInterval": 10000, "resultRetryInterval": 2000 },
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": {} } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] },
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "B", "p": {} } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "B" } } ] },
+    { "at": 100, "in": { "topic": "request", "msg": { "v": 1, "t": "cnl", "id": "B" } } },
+    { "at": 100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "B", "ok": false, "e": "$cancelled" } } ] },
+    { "at": 2100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "B", "ok": false, "e": "$cancelled" } } ] },
+    { "at": 2200, "in": { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "B" } } },
+    { "at": 2200, "expect": [] },
+    { "at": 4100, "expect": [] }
+  ]
+}

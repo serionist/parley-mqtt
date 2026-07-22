@@ -1,0 +1,17 @@
+{
+  "name": "result-retry-until-rak",
+  "role": "handler",
+  "rules": ["H5"],
+  "config": {},
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] },
+    { "at": 100, "handler": { "id": "A", "action": "complete", "p": { "r": 1 } } },
+    { "at": 100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } ] },
+    { "at": 2100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } ] },
+    { "at": 4100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } ] },
+    { "at": 5000, "in": { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } },
+    { "at": 5000, "expect": [] },
+    { "at": 6100, "expect": [] }
+  ]
+}

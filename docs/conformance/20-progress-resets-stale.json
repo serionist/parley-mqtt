@@ -1,0 +1,20 @@
+{
+  "name": "progress-delivery-resets-sliding-stale-timer",
+  "role": "commander",
+  "rules": ["C2", "C8"],
+  "config": { "staleTimeout": 5000 },
+  "steps": [
+    { "at": 0, "call": { "id": "A", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 1000, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } },
+    { "at": 1000, "expect": [] },
+    { "at": 4000, "in": { "topic": "progress", "msg": { "v": 1, "t": "prg", "id": "A", "p": { "step": 1 } } } },
+    { "at": 4000, "expect": [] },
+    { "at": 7000, "expect": [] },
+    { "at": 8000, "in": { "topic": "progress", "msg": { "v": 1, "t": "prg", "id": "A", "p": { "step": 2 } } } },
+    { "at": 8000, "expect": [] },
+    { "at": 9000, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } },
+    { "at": 9000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } ] }
+  ],
+  "outcomes": { "A": { "ok": true, "p": { "r": 1 } } }
+}

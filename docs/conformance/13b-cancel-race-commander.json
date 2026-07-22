@@ -1,0 +1,17 @@
+{
+  "name": "cancel-racing-completion-commander-accepts-result",
+  "role": "commander",
+  "rules": ["C4", "C7"],
+  "config": {},
+  "steps": [
+    { "at": 0, "call": { "id": "A", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 100, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } },
+    { "at": 100, "expect": [] },
+    { "at": 200, "cancel": "A" },
+    { "at": 200, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "cnl", "id": "A" } } ] },
+    { "at": 300, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } },
+    { "at": 300, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } ] }
+  ],
+  "outcomes": { "A": { "ok": true, "p": { "r": 1 } } }
+}

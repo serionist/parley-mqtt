@@ -1,0 +1,21 @@
+{
+  "name": "concurrent-executions-both-heartbeat-results-interleave",
+  "role": "handler",
+  "rules": ["H3", "H4"],
+  "config": { "maxConcurrentExecutions": 2 },
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": {} } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] },
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "B", "p": {} } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "B" } } ] },
+    { "at": 3000, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } }, { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "B" } } ] },
+    { "at": 3100, "handler": { "id": "B", "action": "complete", "p": { "r": 2 } } },
+    { "at": 3100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "B", "ok": true, "p": { "r": 2 } } } ] },
+    { "at": 3200, "handler": { "id": "A", "action": "complete", "p": { "r": 1 } } },
+    { "at": 3200, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } ] },
+    { "at": 3300, "in": { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "B" } } },
+    { "at": 3300, "expect": [] },
+    { "at": 3400, "in": { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } },
+    { "at": 3400, "expect": [] }
+  ]
+}

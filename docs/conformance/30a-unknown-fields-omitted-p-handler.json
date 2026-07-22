@@ -1,0 +1,12 @@
+{
+  "name": "robustness-unknown-fields-and-omitted-p-handler",
+  "role": "handler",
+  "rules": ["§4"],
+  "config": {},
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 }, "extra": "ignored", "foo": 42 } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] },
+    { "at": 100, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "B" } } },
+    { "at": 100, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "B" } } ] }
+  ]
+}

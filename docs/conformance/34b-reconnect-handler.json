@@ -1,0 +1,17 @@
+{
+  "name": "reconnect-handler-resubscribe-timers-unaffected",
+  "role": "handler",
+  "rules": ["§2"],
+  "config": {},
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": {} } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] },
+    { "at": 1000, "connected": true },
+    { "at": 1000, "expect": [ { "subscribe": "request" } ] },
+    { "at": 3000, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] },
+    { "at": 3100, "handler": { "id": "A", "action": "complete", "p": { "r": 1 } } },
+    { "at": 3100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } ] },
+    { "at": 3200, "in": { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } },
+    { "at": 3200, "expect": [] }
+  ]
+}

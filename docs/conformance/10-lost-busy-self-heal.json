@@ -1,0 +1,14 @@
+{
+  "name": "lost-busy-self-heal-via-request-retry",
+  "role": "commander",
+  "rules": ["C1", "C4"],
+  "config": {},
+  "steps": [
+    { "at": 0, "call": { "id": "B", "p": {} } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "B", "p": {} } } ] },
+    { "at": 2000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "B", "p": {} } } ] },
+    { "at": 3000, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "B", "ok": false, "e": "$busy" } } },
+    { "at": 3000, "expect": [] }
+  ],
+  "outcomes": { "B": { "ok": false, "e": "$busy" } }
+}

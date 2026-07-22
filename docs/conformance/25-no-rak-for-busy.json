@@ -1,0 +1,14 @@
+{
+  "name": "commander-does-not-rak-busy",
+  "role": "commander",
+  "rules": ["C4"],
+  "config": {},
+  "steps": [
+    { "at": 0, "call": { "id": "A", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 500, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": false, "e": "$busy" } } },
+    { "at": 500, "expect": [] },
+    { "at": 2000, "expect": [] }
+  ],
+  "outcomes": { "A": { "ok": false, "e": "$busy" } }
+}

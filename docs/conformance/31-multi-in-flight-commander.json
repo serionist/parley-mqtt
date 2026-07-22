@@ -1,0 +1,21 @@
+{
+  "name": "multi-in-flight-commander-distinct-outcomes",
+  "role": "commander",
+  "rules": ["C1", "C2", "C4", "C6"],
+  "config": {},
+  "steps": [
+    { "at": 0, "call": { "id": "A", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 100, "call": { "id": "B", "p": { "y": 2 } } },
+    { "at": 100, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "B", "p": { "y": 2 } } } ] },
+    { "at": 500, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } },
+    { "at": 500, "expect": [] },
+    { "at": 600, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "B" } } },
+    { "at": 600, "expect": [] },
+    { "at": 1000, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } },
+    { "at": 1000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } ] },
+    { "at": 1200, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "B", "ok": false, "e": "customErr", "m": "nope" } } },
+    { "at": 1200, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "B" } } ] }
+  ],
+  "outcomes": { "A": { "ok": true, "p": { "r": 1 } }, "B": { "ok": false, "e": "customErr" } }
+}

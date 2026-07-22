@@ -1,0 +1,15 @@
+{
+  "name": "happy-path-commander",
+  "role": "commander",
+  "rules": ["C1", "C2", "C4"],
+  "config": {},
+  "steps": [
+    { "at": 0, "call": { "id": "cmd1", "p": { "greeting": "こんにちは 🌍", "count": 42, "nested": { "pi": 3.14, "flag": true } } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "cmd1", "p": { "greeting": "こんにちは 🌍", "count": 42, "nested": { "pi": 3.14, "flag": true } } } } ] },
+    { "at": 100, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "cmd1" } } },
+    { "at": 100, "expect": [] },
+    { "at": 200, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "cmd1", "ok": true, "p": { "echo": "こんにちは 🌍", "count": 42 } } } },
+    { "at": 200, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "cmd1" } } ] }
+  ],
+  "outcomes": { "cmd1": { "ok": true, "p": { "echo": "こんにちは 🌍", "count": 42 } } }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "dedup-precedes-capacity",
+  "role": "handler",
+  "rules": ["H1", "H2"],
+  "config": { "maxActiveCommands": 1 },
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": {} } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] },
+    { "at": 100, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "B", "p": {} } } },
+    { "at": 100, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "B", "ok": false, "e": "$busy" } } ] },
+    { "at": 200, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": {} } } },
+    { "at": 200, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] }
+  ]
+}

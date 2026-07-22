@@ -1,0 +1,18 @@
+{
+  "name": "cancel-while-sending",
+  "role": "commander",
+  "rules": ["C7", "C4"],
+  "config": {},
+  "steps": [
+    { "at": 0, "call": { "id": "A", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 2000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 3000, "cancel": "A" },
+    { "at": 3000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "cnl", "id": "A" } } ] },
+    { "at": 4000, "expect": [] },
+    { "at": 5000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "cnl", "id": "A" } } ] },
+    { "at": 6000, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": false, "e": "$cancelled" } } },
+    { "at": 6000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } ] }
+  ],
+  "outcomes": { "A": { "ok": false, "e": "$cancelled" } }
+}

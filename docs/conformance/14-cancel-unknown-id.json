@@ -1,0 +1,10 @@
+{
+  "name": "cancel-unknown-id-stateless-cancelled",
+  "role": "handler",
+  "rules": ["H7"],
+  "config": {},
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "cnl", "id": "A" } } },
+    { "at": 0, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": false, "e": "$cancelled" } } ] }
+  ]
+}

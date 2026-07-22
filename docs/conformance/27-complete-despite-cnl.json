@@ -1,0 +1,16 @@
+{
+  "name": "handler-completes-successfully-despite-cnl",
+  "role": "handler",
+  "rules": ["H7"],
+  "config": {},
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } ] },
+    { "at": 100, "in": { "topic": "request", "msg": { "v": 1, "t": "cnl", "id": "A" } } },
+    { "at": 100, "expect": [] },
+    { "at": 200, "handler": { "id": "A", "action": "complete", "p": { "r": 1 } } },
+    { "at": 200, "expect": [ { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } ] },
+    { "at": 300, "in": { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } },
+    { "at": 300, "expect": [] }
+  ]
+}

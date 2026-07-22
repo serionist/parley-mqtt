@@ -1,0 +1,14 @@
+{
+  "name": "rak-for-unknown-id-ignored",
+  "role": "handler",
+  "rules": ["H6"],
+  "config": {},
+  "steps": [
+    { "at": 0, "in": { "topic": "request", "msg": { "v": 1, "t": "req", "id": "B", "p": {} } } },
+    { "at": 0, "expect": [ { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "B" } } ] },
+    { "at": 100, "in": { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "B" } } },
+    { "at": 100, "expect": [] },
+    { "at": 200, "in": { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "Z" } } },
+    { "at": 200, "expect": [] }
+  ]
+}

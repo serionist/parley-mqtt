@@ -1,0 +1,19 @@
+{
+  "name": "robustness-res-missing-ok-missing-e-ignored",
+  "role": "commander",
+  "rules": ["§4"],
+  "config": {},
+  "steps": [
+    { "at": 0, "call": { "id": "A", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 500, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "p": { "r": 1 } } } },
+    { "at": 500, "expect": [] },
+    { "at": 2000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 2500, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": false } } },
+    { "at": 2500, "expect": [] },
+    { "at": 4000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 4500, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "A", "ok": true, "p": { "r": 1 } } } },
+    { "at": 4500, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "A" } } ] }
+  ],
+  "outcomes": { "A": { "ok": true, "p": { "r": 1 } } }
+}

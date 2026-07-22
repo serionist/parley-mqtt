@@ -1,0 +1,15 @@
+{
+  "name": "executionstale-expiry",
+  "role": "commander",
+  "rules": ["C2", "C3"],
+  "config": { "requestRetryInterval": 2000, "noAckTimeout": 8000, "staleTimeout": 6000 },
+  "steps": [
+    { "at": 0, "call": { "id": "A", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 1000, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } },
+    { "at": 1000, "expect": [] },
+    { "at": 2000, "expect": [] },
+    { "at": 7000, "expect": [] }
+  ],
+  "outcomes": { "A": { "ok": false, "e": "$executionStale" } }
+}

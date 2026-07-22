@@ -1,0 +1,21 @@
+{
+  "name": "foreign-id-traffic-ignored",
+  "role": "commander",
+  "rules": ["C6"],
+  "config": {},
+  "steps": [
+    { "at": 0, "call": { "id": "mine", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "mine", "p": { "x": 1 } } } ] },
+    { "at": 100, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "other" } } },
+    { "at": 100, "expect": [] },
+    { "at": 200, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "other", "ok": true, "p": { "r": 9 } } } },
+    { "at": 200, "expect": [] },
+    { "at": 300, "in": { "topic": "progress", "msg": { "v": 1, "t": "prg", "id": "other", "p": { "q": 1 } } } },
+    { "at": 300, "expect": [] },
+    { "at": 400, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "mine" } } },
+    { "at": 400, "expect": [] },
+    { "at": 500, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "mine", "ok": true, "p": { "r": 1 } } } },
+    { "at": 500, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "mine" } } ] }
+  ],
+  "outcomes": { "mine": { "ok": true, "p": { "r": 1 } } }
+}

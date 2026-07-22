@@ -1,0 +1,18 @@
+{
+  "name": "request-retry-until-first-heartbeat",
+  "role": "commander",
+  "rules": ["C1", "C2"],
+  "config": {},
+  "steps": [
+    { "at": 0, "call": { "id": "c2", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "c2", "p": { "x": 1 } } } ] },
+    { "at": 2000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "c2", "p": { "x": 1 } } } ] },
+    { "at": 4000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "c2", "p": { "x": 1 } } } ] },
+    { "at": 5000, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "c2" } } },
+    { "at": 5000, "expect": [] },
+    { "at": 6000, "expect": [] },
+    { "at": 7000, "in": { "topic": "result", "msg": { "v": 1, "t": "res", "id": "c2", "ok": true, "p": { "y": 2 } } } },
+    { "at": 7000, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "rak", "id": "c2" } } ] }
+  ],
+  "outcomes": { "c2": { "ok": true, "p": { "y": 2 } } }
+}

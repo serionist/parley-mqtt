@@ -1,0 +1,20 @@
+{
+  "name": "executiontimeout-expiry-with-live-heartbeats",
+  "role": "commander",
+  "rules": ["C2", "C3"],
+  "config": { "requestRetryInterval": 2000, "staleTimeout": 5000, "executionTimeout": 8000 },
+  "steps": [
+    { "at": 0, "call": { "id": "A", "p": { "x": 1 } } },
+    { "at": 0, "expect": [ { "topic": "request", "msg": { "v": 1, "t": "req", "id": "A", "p": { "x": 1 } } } ] },
+    { "at": 1000, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } },
+    { "at": 1000, "expect": [] },
+    { "at": 3000, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } },
+    { "at": 3000, "expect": [] },
+    { "at": 5000, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } },
+    { "at": 5000, "expect": [] },
+    { "at": 7000, "in": { "topic": "heartbeat", "msg": { "v": 1, "t": "hb", "id": "A" } } },
+    { "at": 7000, "expect": [] },
+    { "at": 9000, "expect": [] }
+  ],
+  "outcomes": { "A": { "ok": false, "e": "$executionTimeout" } }
+}
