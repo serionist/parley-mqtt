@@ -34,10 +34,12 @@ vector net. Next: the docker e2e matrix (test peers + 16-pair interop grid).
 
 ## Layout (as it grows)
 ```
-README.md         the brief — purpose + main functionalities
-docs/             protocol.md (normative) · design.md · decisions.md · conformance/ (with first impl)
-csharp/ python/   the four reference libraries (to be built)
+README.md         the OSS front door — pitch · how it works · per-language usage
+LICENSE           MIT © 2026 The Parley Authors
+docs/             protocol.md (normative) · design.md · testing.md · decisions.md · conformance/
+csharp/ python/   the four reference libraries
 js/ cpp/
+examples/         one worked example per language (the same backup command) + illustrative adapters
 .claude/          CONVENTIONS.md + skills (plan-first · review-plan · review-code · update-deps)
 ```
 
