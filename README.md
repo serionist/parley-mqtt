@@ -1,91 +1,70 @@
-# Parley — brief
+# Parley
 
-**Parley is a small cross-platform library for request/response RPC over MQTT.** One protocol so the
-different parts of a home/automation system — a .NET service, an ESP32 firmware, a JavaScript edge
-script (e.g. Shelly) — can call each other and get answers back, over the MQTT broker they already
-share.
+**Parley is a small cross-platform library for request/response RPC over MQTT.** One wire
+protocol so the different parts of a home/automation system — a .NET service, a Python service,
+an ESP32 firmware, a JavaScript edge script — can call each other and get answers back, over the
+MQTT broker and connection they already have.
 
 *A "parley" is a conversation between two parties to reach agreement — the shape of an RPC call.*
 
-**Status:** just this brief. Nothing is built yet; this is the idea we want to build out later as a
-standalone open-source library (C# · C++ · JS/TS), consumed by other projects (e.g. as a package or a
-git submodule).
+**Status:** the wire protocol ([`docs/protocol.md`](docs/protocol.md), normative) and the
+cross-language design ([`docs/design.md`](docs/design.md)) are written; the four reference
+libraries are not built yet. Rationale for the design lives in
+[`docs/decisions.md`](docs/decisions.md).
 
 ## Why
 
-MQTT is everywhere in automation, but it's pub/sub — there's no standard "call this and wait for the
-result". People bolt RPC on ad-hoc and it breaks on the exact devices that need it most. Parley makes
-it a proper, reusable thing that works even on constrained devices.
+MQTT is everywhere in automation, but it's pub/sub — there's no standard "call this and wait for
+the result". People bolt RPC on ad-hoc and it breaks on exactly the devices that need it most.
+Parley makes it a proper, reusable thing that stays thin enough for constrained targets.
 
 ## Main functionalities
 
-- **Request/response RPC over MQTT** — call a method on another endpoint and await its result.
-- **Works on plain MQTT 3.1.1 and tiny buffers** — correlation lives in the message payload, not in
-  MQTT 5 request/response properties (which embedded MQTT clients can't use).
-- **ACL-friendly topics** — each endpoint has one fixed inbox; concurrent calls are told apart by an id
-  in the payload, so static broker ACLs work.
-- **Reliable without fuss** — safe over flaky links: a call runs at most once, and the answer is
-  redelivered until it's acknowledged (retransmit + de-duplication, no need for heavy QoS 2).
-- **Liveness built in** — a first-class, library-managed heartbeat on its own topic (with a retained
-  Last-Will) tells you whether a peer is alive, without making a call.
-- **Progress for long operations** — stream progress updates during a slow call (e.g. a backup/update),
-  separate from the heartbeat.
-- **Sensible timeouts** — distinguishes "never accepted", "accepted but timed out", and "went silent
-  mid-progress", instead of one blunt timeout.
-- **Typed, schema-driven** — declare your methods in a schema and generate typed client/server code per
-  language. The library itself stays standalone; you generate the types when you use it.
-- **Three target languages, interoperable** — C# (.NET service), C++ (ESP32/Arduino firmware), and
-  JS/TS (Node + edge engines), all speaking the same wire protocol.
+- **Request/response RPC over MQTT** — execute a command on another endpoint and await its
+  typed result, with progress along the way.
+- **Bring your own connection** — the library is handed a live MQTT session through a small
+  adapter you implement over your existing client. It never connects, never holds credentials or
+  TLS material, and carries no MQTT client dependency of its own.
+- **MQTT-version agnostic** — works on any broker from MQTT 3.1.1 up; correlation, typing, and
+  versioning live in small JSON payloads, not MQTT 5 properties. Correct at QoS 0.
+- **Your topics, not ours** — each command type gets four topic strings (request, heartbeat,
+  progress, result) that *you* choose; no namespace or naming scheme is imposed, so broker ACLs
+  stay entirely in your hands.
+- **Reliable without fuss** — requests are re-sent until the handler shows life; results are
+  re-sent until acknowledged; duplicates are de-duplicated by command id. At-most-once execution
+  without QoS 2.
+- **Liveness per command** — the handler heartbeats every accepted command (even while it's
+  queued), so "the peer is gone" is never confused with "the job is slow" — and a silent-but-alive
+  long job needs no fake progress to stay trusted.
+- **Progress + cancellation for long operations** — advisory progress updates during a slow call,
+  and a wire-level cancel that actually reaches the running handler.
+- **Errors that tell you what happened** — builtin codes distinguish never-accepted (`$noAck`),
+  handler-full (`$busy`), went-silent (`$executionStale`), never-finished (`$executionTimeout`),
+  and cancelled (`$cancelled`) — plus your own typed error codes for domain failures.
+- **Typed with your language's own tools** — generics/templates/type hints bind request,
+  progress, result, and error types; no schema compiler, no code generation.
+- **Four languages, one protocol** — C# (.NET), Python, JS/TS (Node + edge engines), and C++
+  (ESP32/Arduino), all interoperable and all shaped alike: a `ParleyCommander` to call, a
+  `ParleyCommandHandler` to serve.
 
-## How it works (the RPC mechanics)
+## How a call works
 
-Everything is small JSON messages carrying a **correlation id**, published over a handful of fixed
-topics. Correlation lives in the payload (not in MQTT 5 properties) so it works on plain MQTT 3.1.1 and
-tiny embedded buffers.
-
-### Topics
-For a deployment namespace `<ns>` and stable endpoint ids:
-
-| Topic | Direction |
-|---|---|
-| `<ns>/rpc/req/<callee>` | callers publish requests here; the callee subscribes |
-| `<ns>/rpc/res/<caller>` | the callee publishes replies here; the caller subscribes (its **one** inbox) |
-| `<ns>/rpc/hb/<endpoint>` | each endpoint publishes its heartbeat here (retained) |
-| `<ns>/rpc/last/<callee>/<method>` | *(optional)* retained "last result" slot, overwritten each call |
-
-Each caller has **one fixed inbox** — concurrent calls are told apart by the id in the message, so static
-broker ACLs work. Requests and replies are never retained; heartbeats (and the optional last-result slot)
-are.
-
-### The four message kinds (a call's life)
 ```
-caller  ──req──▶  callee          req   the call: method + params + expiry
-        ◀──ack──                  ack   "accepted, executing" (sent once)
-        ◀──prog── (×N)            prog  progress updates — advisory, never acked
-        ◀──res──                  res   the single terminal result: success OR error
+commander ──req──▶  handler        re-sent until the handler shows life
+          ◀──hb───                 heartbeat from admission — the first one is the accept-ack
+          ◀──prg─── (×N)           progress — advisory, never acked
+          ◀──res──                 the single terminal result — re-sent until acked
+          ──rak──▶                 result-ack stops the re-sends
+          (──cnl──▶)               cancel, any time before the result
 ```
 
-### Timeouts — three horizons, not one
-- **ack timeout** — did the callee accept? (peer down / unreachable)
-- **execution timeout** — it accepted, but did it ever finish?
-- **progress-stall** *(optional)* — it was progressing, then went silent.
-
-Distinguishing these tells "the peer is gone" apart from "the job is just slow".
-
-### Automatic resends (reliable over flaky links)
-- The **caller** re-sends the same request (same id) until it gets an ack/result, or retries run out →
-  then it fails with a no-ack error. You don't write retry loops.
-- The **callee** de-duplicates by id: it runs a given call **at most once**, and just re-acks or
-  re-sends the cached result if a duplicate arrives. So at-least-once delivery is made safe **without**
-  heavy QoS 2.
-
-### Heartbeat (liveness, separate from progress)
-Each endpoint publishes a small retained heartbeat on its own `hb/<endpoint>` topic on a timer, and
-registers a Last-Will that flips it to "down" if it drops ungracefully. A watcher just subscribes to know
-whether a peer is alive — no call needed. This is deliberately distinct from per-call progress: a long,
-silent-but-alive job still heartbeats while emitting no progress.
+Everything is a small JSON message carrying a command id on one of four consumer-chosen topics.
+The full contract — state machines, timeouts, error codes, conformance vectors — is
+[`docs/protocol.md`](docs/protocol.md).
 
 ## Not in scope
 
-Not a transport (it rides your existing MQTT broker), not a security layer (that's broker ACL + TLS),
-not a pub/sub replacement (telemetry stays plain MQTT).
+Not a transport (it rides your existing MQTT connection), not a security layer (that's broker
+ACL + TLS on your connection), not a presence system (no retained heartbeats or Last-Will — you
+own the connection, so presence is yours if you want it), not a pub/sub replacement (telemetry
+stays plain MQTT), and no code generation (bind types with your language's own tools).
