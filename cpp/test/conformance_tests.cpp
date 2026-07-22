@@ -17,3 +17,33 @@ TEST_CASE("conformance vectors (protocol.md §10)") {
     DOCTEST_SUBCASE(base.c_str()) { runVector(path); }
   }
 }
+
+// TQ2: the runner's structural guard rejects malformed vectors instead of hitting UB (missing role →
+// std::string(nullptr)) or vacuously passing (missing steps) or ticking backward (decreasing at).
+// Synthetic bad inputs are fed as inline strings — no files are added to docs/conformance.
+TEST_CASE("TQ2: vectorStructureError rejects malformed vectors without UB") {
+  // Well-formed minimal vectors pass.
+  CHECK(vectorStructureError("{\"role\":\"commander\",\"steps\":[{\"at\":0,\"expect\":[]}]}") == "");
+  CHECK(vectorStructureError("{\"role\":\"handler\",\"steps\":[]}") == "");
+
+  // Missing role — the exact UB (std::string(nullptr)) the old runner would hit.
+  CHECK(vectorStructureError("{\"steps\":[]}") != "");
+  // Unknown role.
+  CHECK(vectorStructureError("{\"role\":\"referee\",\"steps\":[]}") != "");
+  // Missing steps (would vacuously "pass" with no assertions).
+  CHECK(vectorStructureError("{\"role\":\"commander\"}") != "");
+  // Non-integer at.
+  CHECK(vectorStructureError("{\"role\":\"commander\",\"steps\":[{\"at\":\"soon\"}]}") != "");
+  // Decreasing at (a silent backward tick).
+  CHECK(vectorStructureError(
+            "{\"role\":\"handler\",\"steps\":[{\"at\":10,\"expect\":[]},{\"at\":5,\"expect\":[]}]}") !=
+        "");
+  // Equal (non-decreasing) at is allowed — same-`at` step pairs are ubiquitous in the real vectors.
+  CHECK(vectorStructureError(
+            "{\"role\":\"handler\",\"steps\":[{\"at\":10,\"expect\":[]},{\"at\":10,\"expect\":[]}]}") ==
+        "");
+
+  // Parse errors and non-object roots.
+  CHECK(vectorStructureError("not json {{{") == "parse error");
+  CHECK(vectorStructureError("[1,2,3]") != "");
+}

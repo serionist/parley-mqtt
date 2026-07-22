@@ -36,6 +36,43 @@ struct ParleyConfig {
         maxConcurrentExecutions(1) {}
 };
 
+namespace detail {
+
+// Config-validation policy (CFG / MS4). Runtime local fail-fast in the no-exceptions house style: a
+// constructor cannot return a sentinel, and the house avoids runtime <cassert> (assert would abort a
+// release device), so the chosen idiom is a *validated() factory that CLAMPS every out-of-range field
+// to its protocol.md §8 default. Rationale:
+//   - a self-rearming interval of 0 is immediately-due and re-arms with delay 0 → tick() spins forever
+//     (the motivating hang); a one-shot window of 0 fires instantly. Both are misconfigurations.
+//   - a duration >= 2^31 ms breaks the wraparound-safe timer horizon (time_util.h kMaxDuration).
+//   - maxConcurrentExecutions < 1 would never dispatch (a silent deadlock).
+// Clamping (rather than aborting) keeps a mis-provisioned device memory-safe and live on its defaults;
+// the policy is deterministic and unit-tested. executionTimeout additionally accepts kNoTimeout, which
+// is a disable sentinel (never armed) and passes through untouched.
+inline uint32_t clampDuration(uint32_t v, uint32_t def) {
+  return (v == 0 || v >= kMaxDuration) ? def : v;
+}
+
+inline ParleyConfig validatedConfig(const ParleyConfig& in) {
+  const ParleyConfig def;  // protocol.md §8 defaults
+  ParleyConfig out = in;
+  out.requestRetryInterval = clampDuration(in.requestRetryInterval, def.requestRetryInterval);
+  out.noAckTimeout = clampDuration(in.noAckTimeout, def.noAckTimeout);
+  out.staleTimeout = clampDuration(in.staleTimeout, def.staleTimeout);
+  out.executionTimeout = (in.executionTimeout == kNoTimeout)
+                             ? kNoTimeout
+                             : clampDuration(in.executionTimeout, def.executionTimeout);
+  out.cancelRetryInterval = clampDuration(in.cancelRetryInterval, def.cancelRetryInterval);
+  out.heartbeatInterval = clampDuration(in.heartbeatInterval, def.heartbeatInterval);
+  out.resultRetryInterval = clampDuration(in.resultRetryInterval, def.resultRetryInterval);
+  out.resultRetryTimeout = clampDuration(in.resultRetryTimeout, def.resultRetryTimeout);
+  out.tombstoneTtl = clampDuration(in.tombstoneTtl, def.tombstoneTtl);
+  if (in.maxConcurrentExecutions < 1) out.maxConcurrentExecutions = def.maxConcurrentExecutions;
+  return out;
+}
+
+}  // namespace detail
+
 }  // namespace parley
 
 #endif  // PARLEY_CONFIG_H

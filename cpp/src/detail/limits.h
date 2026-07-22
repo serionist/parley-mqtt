@@ -11,8 +11,14 @@ namespace parley {
 // Command-id buffer: 64 chars (protocol.md §4.2 upper bound) + NUL.
 static const size_t kIdCapacity = 65;
 
-// Error-code wire string buffer (`e`). Longest builtin is "$executionTimeout" (17); custom codes are
-// bounded here — a longer consumer code is rejected at encode time (fail-fast), never truncated.
+// Error-code wire string buffer (`e`). Longest builtin is "$executionTimeout" (17). Two directions,
+// two policies (AB2):
+//   - Encode side (this device produces a custom code via ParleyExecution::fail): a code longer than
+//     kCodeCapacity-1 is rejected fail-fast — the command aborts, exactly like the $-prefix path — so
+//     we never emit a silently-shortened code onto the wire.
+//   - Receive side (a peer sent us an oversize code): we cannot fail-fast a remote peer, so the code
+//     surfaced to the consumer is truncated into this buffer. That truncation is advisory, like `m`;
+//     no vector asserts a custom code longer than this bound.
 static const size_t kCodeCapacity = 48;
 
 // Human-readable error detail (`m`) buffer. Advisory; a longer value is truncated (plan §6 — no vector

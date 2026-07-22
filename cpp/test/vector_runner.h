@@ -13,4 +13,10 @@ void runVector(const std::string& path);
 // Lists docs/conformance/*.json (host filesystem, PARLEY_CONFORMANCE_DIR), sorted.
 std::vector<std::string> discoverVectors();
 
+// Structural validation of a vector document's TEXT with NO doctest side effects (TQ2). Returns an
+// empty string when the shape is well-formed (parseable JSON object; role is "commander"/"handler";
+// steps is an array whose every `at` is an integer and non-decreasing); otherwise a short reason.
+// runVector() REQUIREs this before replaying; tests assert it directly on synthetic malformed input.
+std::string vectorStructureError(const std::string& text);
+
 #endif  // PARLEY_TEST_VECTOR_RUNNER_H

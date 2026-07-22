@@ -47,6 +47,9 @@ class TombstoneStore {
   bool contains(const char* id) const { return indexOf(id) >= 0; }
 
   void add(const char* id, uint32_t nowDue) {
+    // MS2: a zero/negative cap has no backing storage — adding would evict past index 0 and write
+    // out of bounds. Guard here as well as at compile time (MaxTombstones >= 1 in the shells).
+    if (cap_ <= 0) return;
     int existing = indexOf(id);
     if (existing >= 0) {
       due_[existing] = nowDue;  // refresh TTL (keep insertion position)

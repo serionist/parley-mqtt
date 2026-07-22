@@ -65,6 +65,10 @@ int CommanderCore::reserveCall(const ParleyCallOptions& opts) {
   CommanderSlot& s = slots_[slot];
   idgen_->next(s.id, kIdCapacity);
   if (!wire::isValidId(s.id)) return -1;
+  // CC1 (§4.2): reject a generated id that collides with an in-flight call or a live tombstone. A weak
+  // injected generator must not silently misroute onto an existing call's id. This slot is not yet
+  // inUse, so findInflight can never self-match. A collision is a synchronous local failure (-1).
+  if (findInflight(s.id) >= 0 || tombstones_.contains(s.id)) return -1;
 
   s.inUse = true;
   ++s.gen;
@@ -104,8 +108,13 @@ ParleyCallHandle CommanderCore::sendCall(int slot, wire::PayloadWriter writer, v
   // initial publish, so a synchronous loopback reply finds real timers to cancel/reschedule.
   s.requestRetry.arm(now_, s.requestRetryInterval);
   s.signOfLife.arm(now_, s.noAckTimeout);
+  // CC2: capture the generation BEFORE publishing. An instant-complete loopback can free this slot from
+  // inside publish() and a re-entrant execute() can reuse it (bumping s.gen); reading s.gen afterward
+  // would alias the returned handle onto that new call. The captured gen keeps this handle correct
+  // (and correctly stale — cancel() will reject it — if the loopback already tore the call down).
+  uint32_t gen = s.gen;
   publish(topics_.request, s.reqBuf, s.reqLen);
-  return ParleyCallHandle(slot, s.gen);
+  return ParleyCallHandle(slot, gen);
 }
 
 void CommanderCore::cancel(ParleyCallHandle handle) {
@@ -290,6 +299,11 @@ void CommanderCore::publishCnl(const char* id) {
 }
 
 void CommanderCore::publish(const char* topic, const uint8_t* bytes, size_t len) {
+  // ARENA invariant: the commander only ever publishes on the request topic, and only ever parses the
+  // three topics it never publishes (heartbeat / progress / result). A synchronous-loopback adapter may
+  // re-enter deliver() from inside this call and reset the parse arena — but because that arena is
+  // disjoint from any borrowed pointer live on this outbound path, the re-entrancy can never invalidate
+  // state the caller is still holding. Do not add a publish on a subscribed topic here.
   adapter_->publish(topic, bytes, len);
 }
 

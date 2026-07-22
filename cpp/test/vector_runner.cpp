@@ -241,13 +241,18 @@ void runCommander(const std::string& name, JsonObjectConst config, JsonArrayCons
 
   std::map<std::string, CallRecord> calls;
   uint32_t lastAt = 0;
+  bool firstStep = true;
 
   for (JsonVariantConst stepV : steps) {
     JsonObjectConst step = stepV.as<JsonObjectConst>();
     uint32_t at = static_cast<uint32_t>(step["at"].as<long long>());
     CHECK_MESSAGE(step["at"].is<long long>(), "vector '" << name << "': step 'at' must be an integer");
     ensureSingleDirective(name, step);
-    commander.tick(at);  // §10: all timers due <= at fire before the step
+    // TQ1: tick exactly once per distinct `at`, mirroring the C# runner (which only advances the
+    // virtual clock on a positive delta). Re-ticking at the same `at` before a later same-`at` expect
+    // would mask a defect that publishes from tick() rather than synchronously.
+    if (firstStep || at != lastAt) commander.tick(at);  // §10: all timers due <= at fire before step
+    firstStep = false;
     lastAt = at;
 
     if (!step["call"].isNull()) {
@@ -323,12 +328,15 @@ void runHandler(const std::string& name, JsonObjectConst config, JsonArrayConst 
   adapter.clear();
 
   uint32_t lastAt = 0;
+  bool firstStep = true;
   for (JsonVariantConst stepV : steps) {
     JsonObjectConst step = stepV.as<JsonObjectConst>();
     uint32_t at = static_cast<uint32_t>(step["at"].as<long long>());
     CHECK_MESSAGE(step["at"].is<long long>(), "vector '" << name << "': step 'at' must be an integer");
     ensureSingleDirective(name, step);
-    handler.tick(at);
+    // TQ1: tick exactly once per distinct `at` (see runCommander).
+    if (firstStep || at != lastAt) handler.tick(at);
+    firstStep = false;
     lastAt = at;
 
     if (!step["in"].isNull()) {
@@ -361,11 +369,50 @@ void runHandler(const std::string& name, JsonObjectConst config, JsonArrayConst 
 
 }  // namespace
 
+std::string vectorStructureError(const std::string& text) {
+  // TQ2: top-level structural validation with NO doctest side effects, so it can gate runVector() AND
+  // be asserted directly on synthetic malformed input. Guards the three UB/vacuous-pass traps: a
+  // missing `role` (std::string(nullptr)), a missing `steps` (vacuous pass), and a decreasing `at`
+  // (silent backward tick).
+  JsonDocument doc;
+  if (ArduinoJson::deserializeJson(doc, text) != ArduinoJson::DeserializationError::Ok)
+    return "parse error";
+  if (!doc.is<JsonObjectConst>()) return "root is not a JSON object";
+  JsonObjectConst root = doc.as<JsonObjectConst>();
+
+  JsonVariantConst roleV = root["role"];
+  if (!roleV.is<const char*>()) return "missing or non-string 'role'";
+  std::string role = roleV.as<const char*>();
+  if (role != "commander" && role != "handler") return "unknown role '" + role + "'";
+
+  JsonVariantConst stepsV = root["steps"];
+  if (!stepsV.is<JsonArrayConst>()) return "missing 'steps' array";
+
+  bool first = true;
+  long long lastAt = 0;
+  for (JsonVariantConst sv : stepsV.as<JsonArrayConst>()) {
+    if (!sv.is<JsonObjectConst>()) return "step is not an object";
+    JsonVariantConst atV = sv.as<JsonObjectConst>()["at"];
+    if (!atV.is<long long>()) return "step 'at' must be an integer";
+    long long at = atV.as<long long>();
+    if (!first && at < lastAt) return "step 'at' must be non-decreasing";
+    first = false;
+    lastAt = at;
+  }
+  return "";
+}
+
 void runVector(const std::string& path) {
   std::ifstream in(path, std::ios::binary);
   std::stringstream ss;
   ss << in.rdbuf();
   std::string text = ss.str();
+
+  // TQ2: reject malformed vectors up front so replay never hits UB (e.g. std::string(nullptr) on a
+  // missing role). A real conformance vector always passes; a broken one fails loudly here.
+  std::string structErr = vectorStructureError(text);
+  REQUIRE_MESSAGE(structErr.empty(), "malformed vector " << path << ": " << structErr);
+  if (!structErr.empty()) return;
 
   JsonDocument doc;
   ArduinoJson::DeserializationError err = ArduinoJson::deserializeJson(doc, text);

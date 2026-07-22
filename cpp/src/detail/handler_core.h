@@ -24,12 +24,14 @@ class HandlerHost {
   virtual ~HandlerHost() {}
   // Decodes+stores the request payload for a reserved slot. false → decode failure → silent drop (§4).
   virtual bool decodeRequest(int slot, ArduinoJson::JsonVariantConst p, bool pPresent) = 0;
-  // Dispatches an admitted, dequeued command to the consumer's handleCommand (H4).
-  virtual void dispatch(int slot) = 0;
+  // Dispatches an admitted, dequeued command to the consumer's handleCommand (H4). `gen` stamps the
+  // slot's admission generation into the typed execution so a stale handle (slot reused) no-ops.
+  virtual void dispatch(int slot, uint32_t gen) = 0;
 };
 
 struct HandlerSlot {
   bool inUse;
+  uint32_t gen;  // admission generation — bumped on every reserve; gen-stamps the handler's execution
   char id[kIdCapacity];
   uint8_t state;  // kQueued / kExecuting / kResultCached
   bool cancelRequested;
@@ -41,8 +43,8 @@ struct HandlerSlot {
   Timer resultRetry;
   Timer resultRetryTimeout;
 
-  HandlerSlot() : inUse(false), state(0), cancelRequested(false), seq(0), resBuf(nullptr), resLen(0),
-                  resCap(0) {
+  HandlerSlot() : inUse(false), gen(0), state(0), cancelRequested(false), seq(0), resBuf(nullptr),
+                  resLen(0), resCap(0) {
     id[0] = '\0';
   }
 };
@@ -67,13 +69,18 @@ class HandlerCore {
   void disposeAll();
 
   // --- called by the shell's ParleyExecution ---
-  void completeSuccess(int slot, wire::PayloadWriter writer, void* ctx);
-  void completeCustomError(int slot, const char* code, const char* m);
-  void completeCancelled(int slot);
-  void abort(int slot);
-  void emitProgress(int slot, wire::PayloadWriter writer, void* ctx);
-  bool isCancelRequested(int slot) const { return slots_[slot].cancelRequested; }
-  const char* slotId(int slot) const { return slots_[slot].id; }
+  // Every exec-forwarded op carries the admission `gen` captured at bind time and no-ops unless the
+  // slot is still in use, still on that generation, AND still EXECUTING (MS1/HC1). This mirrors the
+  // commander's gen-stamped ParleyCallHandle: a stale/duplicate call after a tombstone+slot-reuse (or
+  // a second succeed()/fail() on an already-completed command) must never publish for another command
+  // nor corrupt executingCount_.
+  void completeSuccess(int slot, uint32_t gen, wire::PayloadWriter writer, void* ctx);
+  void completeCustomError(int slot, uint32_t gen, const char* code, const char* m);
+  void completeCancelled(int slot, uint32_t gen);
+  void abort(int slot, uint32_t gen);
+  void emitProgress(int slot, uint32_t gen, wire::PayloadWriter writer, void* ctx);
+  bool isCancelRequested(int slot, uint32_t gen) const;
+  const char* slotId(int slot, uint32_t gen) const;
 
   int commandCount() const;
   int queueCount() const;
@@ -85,11 +92,17 @@ class HandlerCore {
   void subscribeAll();
   int findCommand(const char* id) const;
   int reserveSlot();
+  // True iff `slot` is a live, EXECUTING command still on generation `gen` — the guard shared by every
+  // exec-forwarded op. A completed command (kResultCached) or a reused slot (gen bumped) fails it.
+  bool execIsLive(int slot, uint32_t gen) const;
   void onRequest(const char* id, ArduinoJson::JsonVariantConst p, bool hasP);
   void onResultAck(const char* id);
   void onCancel(const char* id);
   void tryDispatch();
   int pickQueued() const;
+  // Internal completion workers (no gen guard — callers hold a known-live slot).
+  void finishCancelled(int slot);
+  void abortSlot(int slot);
   void completeWithResult(int slot, size_t resLen, bool wasExecuting);
   void moveToTombstone(int slot);
   void publishHeartbeat(int slot);

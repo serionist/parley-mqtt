@@ -258,3 +258,99 @@ TEST_CASE("H6: rak for an executing/unknown id is ignored") {
   deliverStr(h, "request", msgRak("Z"));        // unknown id ignored
   CHECK(h.commandCount() == 1);
 }
+
+// --- MS1/HC1: handler execution staleness guard (gen-stamped, mirroring the commander handle) ---
+
+namespace {
+// A handler that keeps a VALUE COPY of each dispatched execution, capturing its slot+generation at
+// dispatch. A copy taken before a slot is reused is a genuinely stale handle — the exact shape the gen
+// stamp defends (the mirror of a commander holding a ParleyCallHandle by value across a slot reuse).
+template <int N>
+class CopyExecHandler : public parley::ParleyCommandHandler<int, int, int, RawCode, N> {
+ public:
+  typedef parley::ParleyCommandHandler<int, int, int, RawCode, N> Base;
+  typedef parley::ParleyExecution<int, int, int, RawCode> Exec;
+  CopyExecHandler(parley::ParleyConnectionAdapter& a, const parley::ParleyTopics& t,
+                  const parley::ParleyConfig& c = parley::ParleyConfig())
+      : Base(a, t, c) {}
+  std::map<std::string, Exec> copies;  // value copies keyed by command id at dispatch time
+ protected:
+  void handleCommand(Exec& e) override { copies[std::string(e.commandId())] = e; }
+};
+}  // namespace
+
+TEST_CASE("MS1: a stale execution after slot readmission no-ops (new occupant untouched, wire silent)") {
+  FakeAdapter adapter;
+  CopyExecHandler<1> h(adapter, unitTopics());  // MaxCommands 1 forces slot reuse
+  adapter.clear();
+
+  // Admit + complete + tombstone A, freeing slot 0.
+  deliverStr(h, "request", msgReq("A", "1"));
+  CopyExecHandler<1>::Exec execA = h.copies.at("A");  // value copy: slot 0, generation 1
+  execA.succeed(7);                                   // A → RESULT-CACHED (via the live generation)
+  deliverStr(h, "request", msgRak("A"));              // rak → tombstone, slot 0 freed
+  CHECK(h.commandCount() == 0);
+
+  // Readmit B into the same slot (generation bumped to 2); B is executing.
+  deliverStr(h, "request", msgReq("B", "1"));
+  CHECK(h.commandCount() == 1);
+  CHECK(h.executingCount() == 1);
+  adapter.clear();
+
+  // The stale copy of A (generation 1) fires into slot 0, now owned by B (generation 2): total no-op.
+  execA.succeed(999);
+  CHECK(adapter.publishCount() == 0);           // wire silent — no res published for the wrong command
+  CHECK(h.commandCount() == 1);                 // B untouched
+  CHECK(h.executingCount() == 1);
+  CHECK(std::string(execA.commandId()) == "");  // the stale handle borrows nothing
+
+  // B still completes normally through its live execution.
+  h.copies.at("B").succeed(5);
+  CHECK(countPublishes(adapter, "result", "res") == 1);
+}
+
+TEST_CASE("MS1: double succeed() on one execution completes exactly once") {
+  FakeAdapter adapter;
+  IntHandler1 h(adapter, unitTopics());
+  adapter.clear();
+  deliverStr(h, "request", msgReq("A", "1"));
+  IntHandler1::Exec* e = h.exec("A");
+  REQUIRE(e != nullptr);
+
+  e->succeed(7);
+  CHECK(countPublishes(adapter, "result", "res") == 1);
+  CHECK(h.commandCount() == 1);  // RESULT-CACHED
+
+  e->succeed(8);  // second completion attempt on the now-cached command → no-op
+  CHECK(countPublishes(adapter, "result", "res") == 1);  // still exactly one res
+
+  // The cached result is the FIRST value (7), unchanged by the second call — inspect via a dup req.
+  adapter.clear();
+  deliverStr(h, "request", msgReq("A", "1"));  // dup while RESULT-CACHED → re-publish cached res
+  const OutboundAction* res = lastPublish(adapter, "result");
+  REQUIRE(res != nullptr);
+  ArduinoJson::JsonDocument d;
+  ArduinoJson::deserializeJson(d, res->payload.data(), res->payload.size());
+  CHECK(d["p"].as<int>() == 7);
+}
+
+TEST_CASE("MS1: executingCount never goes negative on a duplicate completion after abort") {
+  FakeAdapter adapter;
+  IntHandler1 h(adapter, unitTopics());  // maxConcurrentExecutions 1
+  adapter.clear();
+  deliverStr(h, "request", msgReq("A", "1"));
+  CHECK(h.executingCount() == 1);
+  IntHandler1::Exec* e = h.exec("A");
+
+  RawCode bad;
+  strcpy(bad.code, "$sneaky");
+  e->fail(bad);  // $-prefix → abort: slot freed, executingCount → 0
+  CHECK(h.executingCount() == 0);
+  CHECK(h.commandCount() == 0);
+
+  e->succeed(1);  // stale duplicate on the freed slot → must NOT decrement executingCount again
+  CHECK(h.executingCount() == 0);  // floored, never -1
+  e->cancel();                     // another stale op → still inert
+  CHECK(h.executingCount() == 0);
+  CHECK(h.commandCount() == 0);
+}

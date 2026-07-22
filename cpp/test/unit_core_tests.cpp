@@ -79,6 +79,118 @@ TEST_CASE("TombstoneStore: refresh keeps position and updates TTL") {
   CHECK(store.count() == 0);
 }
 
+// --- MS2: cap-1 boundary and the cap-0 underflow guard ---
+// Compile-time note: the shells (ParleyCommander / ParleyCommandHandler) carry
+// `static_assert(MaxTombstones >= 1)`, so a cap of 0 CANNOT be instantiated through the public API —
+// `ParleyCommander<int,int,int,RawCode,1,256,0>` fails to compile ("MaxTombstones must be >= 1 (MS2)").
+// The runtime guard below defends TombstoneStore directly for completeness (defense in depth).
+TEST_CASE("TombstoneStore: cap-1 keeps only the newest; cap-0 add is a safe no-op (MS2)") {
+  SUBCASE("cap 1: newest wins, oldest evicted, no overflow") {
+    char ids[1][parley::kIdCapacity];
+    uint32_t due[1];
+    TombstoneStore store;
+    store.init(ids, due, 1);
+    store.add("a", 1000);
+    CHECK(store.count() == 1);
+    CHECK(store.contains("a"));
+    store.add("b", 1000);  // over cap → evict "a"
+    CHECK(store.count() == 1);
+    CHECK_FALSE(store.contains("a"));
+    CHECK(store.contains("b"));
+  }
+  SUBCASE("cap 0: add never underflows count or writes out of bounds") {
+    TombstoneStore store;
+    store.init(nullptr, nullptr, 0);  // zero cap → no backing storage
+    store.add("x", 1000);             // MS2 guard: returns early, no removeAt(0) underflow / OOB write
+    CHECK(store.count() == 0);
+    CHECK_FALSE(store.contains("x"));
+    store.expire(2000);  // still safe with no entries
+    CHECK(store.count() == 0);
+  }
+}
+
+// --- CFG / MS4: config validation clamps out-of-range durations and caps to defaults ---
+TEST_CASE("CFG: validatedConfig clamps out-of-range fields to their protocol.md §8 defaults") {
+  using parley::detail::kNoTimeout;
+  using parley::detail::validatedConfig;
+  const parley::ParleyConfig def;
+
+  SUBCASE("zero self-rearming intervals → defaults (unclamped they would spin tick())") {
+    parley::ParleyConfig in;
+    in.requestRetryInterval = 0;
+    in.heartbeatInterval = 0;
+    in.resultRetryInterval = 0;
+    in.cancelRetryInterval = 0;
+    parley::ParleyConfig out = validatedConfig(in);
+    CHECK(out.requestRetryInterval == def.requestRetryInterval);
+    CHECK(out.heartbeatInterval == def.heartbeatInterval);
+    CHECK(out.resultRetryInterval == def.resultRetryInterval);
+    CHECK(out.cancelRetryInterval == def.cancelRetryInterval);
+  }
+  SUBCASE("zero one-shot windows → defaults") {
+    parley::ParleyConfig in;
+    in.noAckTimeout = 0;
+    in.staleTimeout = 0;
+    in.resultRetryTimeout = 0;
+    in.tombstoneTtl = 0;
+    parley::ParleyConfig out = validatedConfig(in);
+    CHECK(out.noAckTimeout == def.noAckTimeout);
+    CHECK(out.staleTimeout == def.staleTimeout);
+    CHECK(out.resultRetryTimeout == def.resultRetryTimeout);
+    CHECK(out.tombstoneTtl == def.tombstoneTtl);
+  }
+  SUBCASE("durations at/above the 2^31 ms horizon → defaults (MS4)") {
+    parley::ParleyConfig in;
+    in.requestRetryInterval = 0x80000000u;  // exactly the bound (kMaxDuration)
+    in.staleTimeout = 0xF0000000u;
+    parley::ParleyConfig out = validatedConfig(in);
+    CHECK(out.requestRetryInterval == def.requestRetryInterval);
+    CHECK(out.staleTimeout == def.staleTimeout);
+  }
+  SUBCASE("executionTimeout: kNoTimeout preserved, 0 and huge → default") {
+    parley::ParleyConfig a;
+    a.executionTimeout = kNoTimeout;
+    CHECK(validatedConfig(a).executionTimeout == kNoTimeout);  // disable sentinel passes through
+    parley::ParleyConfig b;
+    b.executionTimeout = 0;
+    CHECK(validatedConfig(b).executionTimeout == def.executionTimeout);
+    parley::ParleyConfig cc;
+    cc.executionTimeout = 0x80000000u;
+    CHECK(validatedConfig(cc).executionTimeout == def.executionTimeout);
+  }
+  SUBCASE("maxConcurrentExecutions < 1 → 1") {
+    parley::ParleyConfig in;
+    in.maxConcurrentExecutions = 0;
+    CHECK(validatedConfig(in).maxConcurrentExecutions == 1);
+    parley::ParleyConfig neg;
+    neg.maxConcurrentExecutions = -3;
+    CHECK(validatedConfig(neg).maxConcurrentExecutions == 1);
+  }
+  SUBCASE("a fully valid custom config passes through unchanged") {
+    parley::ParleyConfig in;
+    in.requestRetryInterval = 1500;
+    in.executionTimeout = 45000;
+    in.maxConcurrentExecutions = 3;
+    parley::ParleyConfig out = validatedConfig(in);
+    CHECK(out.requestRetryInterval == 1500);
+    CHECK(out.executionTimeout == 45000);
+    CHECK(out.maxConcurrentExecutions == 3);
+  }
+}
+
+TEST_CASE("CFG: a shell built with zero intervals does not spin tick() (clamped to defaults)") {
+  FakeAdapter adapter;
+  parley::ParleyConfig cfg;
+  cfg.heartbeatInterval = 0;    // unclamped: immediately-due self-rearming hb → tick() would hang
+  cfg.resultRetryInterval = 0;
+  StashHandler<int, int, int, RawCode, 1> h(adapter, unitTopics(), cfg);
+  adapter.clear();
+  deliverStr(h, "request", msgReq("A", "1"));  // accept-ack hb, cadence clamped to the 3000 ms default
+  h.tick(1000);                                 // returns — no infinite heartbeat loop
+  h.tick(2000);
+  CHECK(countPublishes(adapter, "heartbeat", "hb") == 1);  // only the accept-ack; cadence is 3000, not 0
+}
+
 // --- id validation (§4.2) ---
 TEST_CASE("wire::isValidId enforces §4.2") {
   CHECK(wire::isValidId("kD3fx9Qw"));

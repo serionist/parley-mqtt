@@ -37,6 +37,10 @@ class ParleyCommander : public detail::CommanderHost {
   typedef void (*ProgressCallback)(void* userData, const Prog& progress);
   typedef void (*CompleteCallback)(void* userData, const ParleyResult<Res, Err>& result);
 
+  static_assert(MaxInFlight >= 1, "MaxInFlight must be >= 1");
+  static_assert(MaxPayload <= 65535, "MaxPayload must fit the uint16 wire length fields (MS3)");
+  static_assert(MaxTombstones >= 1, "MaxTombstones must be >= 1 (MS2)");
+
   ParleyCommander(ParleyConnectionAdapter& adapter, const ParleyTopics& topics,
                   const ParleyConfig& config = ParleyConfig(), ParleyIdGenerator* idGenerator = nullptr)
       : idgen_(idGenerator ? idGenerator : &defaultIdGen_) {
@@ -45,9 +49,11 @@ class ParleyCommander : public detail::CommanderHost {
       completeCb_[i] = nullptr;
       userData_[i] = nullptr;
     }
-    core_.init(&adapter, topics, config, idgen_, this, slots_, MaxInFlight, &reqCaches_[0][0],
-               MaxPayload, scratch_, tombIds_, tombDue_, MaxTombstones, parseArena_, kArenaCap,
-               buildArena_, kArenaCap);
+    // CFG: validate (clamp out-of-range durations to defaults) at construction — a zero self-rearming
+    // interval would otherwise make tick() spin forever.
+    core_.init(&adapter, topics, detail::validatedConfig(config), idgen_, this, slots_, MaxInFlight,
+               &reqCaches_[0][0], MaxPayload, scratch_, tombIds_, tombDue_, MaxTombstones, parseArena_,
+               kArenaCap, buildArena_, kArenaCap);
   }
 
   ~ParleyCommander() { core_.disposeAll(); }

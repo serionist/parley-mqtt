@@ -84,9 +84,20 @@ int HandlerCore::findCommand(const char* id) const {
 
 int HandlerCore::reserveSlot() {
   for (int i = 0; i < slotCount_; ++i) {
-    if (!slots_[i].inUse) return i;
+    if (!slots_[i].inUse) {
+      // MS1/HC1: bump the admission generation on every reserve, mirroring the commander's per-reserve
+      // ++gen. The stamp handed to the execution at dispatch goes stale the instant this slot is reused.
+      ++slots_[i].gen;
+      return i;
+    }
   }
   return -1;
+}
+
+bool HandlerCore::execIsLive(int slot, uint32_t gen) const {
+  if (slot < 0 || slot >= slotCount_) return false;
+  const HandlerSlot& s = slots_[slot];
+  return s.inUse && s.gen == gen && s.state == kExecuting;
 }
 
 void HandlerCore::onRequest(const char* id, JsonVariantConst p, bool hasP) {
@@ -150,8 +161,9 @@ void HandlerCore::onCancel(const char* id) {
         s.cancelRequested = true;
         break;
       case kQueued:
-        // H7: dequeue and produce a cached, retried $cancelled result.
-        completeCancelled(slot);
+        // H7: dequeue and produce a cached, retried $cancelled result. Internal worker — this slot is
+        // known-live and has no outstanding execution (never dispatched), so no gen guard applies.
+        finishCancelled(slot);
         break;
       case kResultCached:
         // H7: cancel lost the race — re-publish the cached result.
@@ -175,7 +187,7 @@ void HandlerCore::tryDispatch() {
     if (slot < 0) break;
     slots_[slot].state = kExecuting;
     ++executingCount_;
-    host_->dispatch(slot);
+    host_->dispatch(slot, slots_[slot].gen);
   }
   dispatching_ = false;
 }
@@ -195,34 +207,41 @@ int HandlerCore::pickQueued() const {
   return best;
 }
 
-void HandlerCore::completeSuccess(int slot, wire::PayloadWriter writer, void* ctx) {
+void HandlerCore::completeSuccess(int slot, uint32_t gen, wire::PayloadWriter writer, void* ctx) {
+  if (!execIsLive(slot, gen)) return;  // MS1/HC1: stale/duplicate call → no-op (see header)
   HandlerSlot& s = slots_[slot];
   FixedArena barena(buildArenaBuf_, buildArenaCap_);
   size_t len = wire::buildSuccessResult(s.resBuf, s.resCap, barena, s.id, writer, ctx);
   if (len == 0) {
-    abort(slot);  // outcome-encode failure ≡ handler fault → abort (plan §3)
+    abortSlot(slot);  // outcome-encode failure ≡ handler fault → abort (plan §3)
     return;
   }
   completeWithResult(slot, len, s.state == kExecuting);
 }
 
-void HandlerCore::completeCustomError(int slot, const char* code, const char* m) {
+void HandlerCore::completeCustomError(int slot, uint32_t gen, const char* code, const char* m) {
+  if (!execIsLive(slot, gen)) return;  // MS1/HC1
   HandlerSlot& s = slots_[slot];
   FixedArena barena(buildArenaBuf_, buildArenaCap_);
   size_t len = wire::buildCustomErrorResult(s.resBuf, s.resCap, barena, s.id, code, m);
   if (len == 0) {
-    abort(slot);
+    abortSlot(slot);
     return;
   }
   completeWithResult(slot, len, s.state == kExecuting);
 }
 
-void HandlerCore::completeCancelled(int slot) {
+void HandlerCore::completeCancelled(int slot, uint32_t gen) {
+  if (!execIsLive(slot, gen)) return;  // MS1/HC1 — the H7 EXECUTING arm (exec.cancel())
+  finishCancelled(slot);
+}
+
+void HandlerCore::finishCancelled(int slot) {
   HandlerSlot& s = slots_[slot];
   FixedArena barena(buildArenaBuf_, buildArenaCap_);
   size_t len = wire::buildBuiltinErrorResult(s.resBuf, s.resCap, barena, s.id, builtin_codes::kCancelled);
   if (len == 0) {
-    abort(slot);
+    abortSlot(slot);
     return;
   }
   completeWithResult(slot, len, s.state == kExecuting);
@@ -248,7 +267,12 @@ void HandlerCore::completeWithResult(int slot, size_t resLen, bool wasExecuting)
   }
 }
 
-void HandlerCore::abort(int slot) {
+void HandlerCore::abort(int slot, uint32_t gen) {
+  if (!execIsLive(slot, gen)) return;  // MS1/HC1 — the ParleyExecution::fail() reject paths
+  abortSlot(slot);
+}
+
+void HandlerCore::abortSlot(int slot) {
   HandlerSlot& s = slots_[slot];
   s.heartbeat.disarm();
   bool wasExecuting = (s.state == kExecuting);
@@ -294,10 +318,16 @@ void HandlerCore::releaseSlot(int slot) {
   s.heartbeat.disarm();
   s.resultRetry.disarm();
   s.resultRetryTimeout.disarm();
+  // MS1/HC1: clear the EXECUTING marker as the slot is freed. Without this a freed slot keeps
+  // state==kExecuting, so a duplicate exec op reading state (before the gen guard existed) would
+  // re-decrement executingCount_ into the negatives. The gen guard is the primary defense; this is
+  // the belt-and-suspenders that keeps a freed slot from ever reading as a live execution.
+  s.state = kQueued;
   s.inUse = false;
 }
 
-void HandlerCore::emitProgress(int slot, wire::PayloadWriter writer, void* ctx) {
+void HandlerCore::emitProgress(int slot, uint32_t gen, wire::PayloadWriter writer, void* ctx) {
+  if (!execIsLive(slot, gen)) return;  // MS1/HC1: stale progress → dropped (never for another command)
   HandlerSlot& s = slots_[slot];
   FixedArena barena(buildArenaBuf_, buildArenaCap_);
   size_t len = wire::buildProgress(scratch_, maxPayload_, barena, s.id, writer, ctx);
@@ -305,7 +335,22 @@ void HandlerCore::emitProgress(int slot, wire::PayloadWriter writer, void* ctx) 
   // An unencodable/oversize progress payload is dropped (C8: advisory) — never aborts the command.
 }
 
+bool HandlerCore::isCancelRequested(int slot, uint32_t gen) const {
+  if (!execIsLive(slot, gen)) return false;  // MS1/HC1: a stale poll never reads a reused slot's flag
+  return slots_[slot].cancelRequested;
+}
+
+const char* HandlerCore::slotId(int slot, uint32_t gen) const {
+  if (!execIsLive(slot, gen)) return "";  // MS1/HC1: a stale handle never borrows a reused slot's id
+  return slots_[slot].id;
+}
+
 void HandlerCore::publish(const char* topic, const uint8_t* bytes, size_t len) {
+  // ARENA invariant: the handler only ever publishes on topics it never parses (heartbeat / progress /
+  // result), and only ever parses the one topic it never publishes (request). A synchronous-loopback
+  // adapter may re-enter deliver() from inside this call and reset the parse arena — but because that
+  // arena is disjoint from any borrowed pointer live on this outbound path, the re-entrancy can never
+  // invalidate state the caller is still holding. Do not add a publish on the request topic here.
   adapter_->publish(topic, bytes, len);
 }
 

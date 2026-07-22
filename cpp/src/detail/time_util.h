@@ -15,6 +15,13 @@ namespace detail {
 // skip-scheduling branch instead.
 static const uint32_t kNoTimeout = 0xFFFFFFFFu;
 
+// Scheduling horizon (MS4): every configured duration must stay strictly below 2^31 ms (~24.8 days,
+// half the uint32 ms range). timeReached()/timeBefore() are two's-complement signed diffs that stay
+// correct only while the arm→due gap is under half the range; a duration >= 2^31 would flip the sign
+// and mis-fire. ParleyConfig validation (detail::validatedConfig) clamps any duration at or above this
+// bound back to its default, so no timer is ever armed beyond the horizon.
+static const uint32_t kMaxDuration = 0x80000000u;
+
 // True when `now` has reached or passed `due`, correct across a single uint32 rollover, provided the
 // scheduling horizon stays under ~24.8 days (half the uint32 ms range) — far beyond every Parley
 // interval. Implemented as a signed difference so the wrap is handled by two's-complement subtraction.

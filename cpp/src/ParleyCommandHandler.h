@@ -27,11 +27,17 @@ template <class Req, class Prog, class Res, class Err, int MaxCommands, int MaxP
           int MaxTombstones = MaxCommands * 4>
 class ParleyCommandHandler : public detail::HandlerHost {
  public:
+  static_assert(MaxCommands >= 1, "MaxCommands must be >= 1");
+  static_assert(MaxPayload <= 65535, "MaxPayload must fit the uint16 wire length fields (MS3)");
+  static_assert(MaxTombstones >= 1, "MaxTombstones must be >= 1 (MS2)");
+
   ParleyCommandHandler(ParleyConnectionAdapter& adapter, const ParleyTopics& topics,
                        const ParleyConfig& config = ParleyConfig()) {
-    core_.init(&adapter, topics, config, this, slots_, MaxCommands, &resCaches_[0][0], MaxPayload,
-               scratch_, tombIds_, tombDue_, MaxTombstones, parseArena_, kArenaCap, buildArena_,
-               kArenaCap);
+    // CFG: validate (clamp out-of-range durations/caps to defaults) at construction — a zero
+    // self-rearming interval would otherwise make tick() spin forever.
+    core_.init(&adapter, topics, detail::validatedConfig(config), this, slots_, MaxCommands,
+               &resCaches_[0][0], MaxPayload, scratch_, tombIds_, tombDue_, MaxTombstones, parseArena_,
+               kArenaCap, buildArena_, kArenaCap);
   }
 
   virtual ~ParleyCommandHandler() { core_.disposeAll(); }
@@ -69,8 +75,8 @@ class ParleyCommandHandler : public detail::HandlerHost {
     return true;
   }
 
-  void dispatch(int slot) override {
-    execs_[slot].bind(&core_, slot, &requestStorage_[slot]);
+  void dispatch(int slot, uint32_t gen) override {
+    execs_[slot].bind(&core_, slot, gen, &requestStorage_[slot]);
     handleCommand(execs_[slot]);
   }
 
