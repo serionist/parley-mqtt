@@ -5,11 +5,11 @@ C++/ESP32 · JS/TS), so a .NET service, a Python service, an embedded firmware, 
 call each other over the MQTT broker they already share. Purpose + functionalities:
 **[`README.md`](README.md)** (the brief).
 
-**Status: C# + TypeScript done.** The wire protocol (`docs/protocol.md`), the cross-language
-design (`docs/design.md`), the decisions log (`docs/decisions.md`), the 41 conformance vectors
-(`docs/conformance/`), the test strategy (`docs/testing.md`), the C# library (`csharp/`, 66
-tests), and the TS library (`js/`, 78 tests) exist — both deep-reviewed CLEAN against the same
-vector net. Next: Python, C++, then the docker e2e matrix.
+**Status: C# + TypeScript + Python done.** The wire protocol (`docs/protocol.md`), the
+cross-language design (`docs/design.md`), the decisions log (`docs/decisions.md`), the 41
+conformance vectors (`docs/conformance/`), the test strategy (`docs/testing.md`), and three
+libraries — C# (`csharp/`, 66 tests), TS (`js/`, 78), Python (`python/`, 102) — exist, each
+deep-reviewed CLEAN against the same vector net. Next: C++, then the docker e2e matrix.
 
 ## Standing instructions
 
