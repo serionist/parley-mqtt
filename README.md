@@ -258,17 +258,24 @@ bounded-state requirement: run thousands of command cycles, then assert every
 internal table has returned to its steady-state size). The three-layer strategy is
 [`docs/testing.md`](docs/testing.md).
 
-The one layer **not yet run** is the over-the-wire cross-language matrix — the 16
-ordered language pairs talking through a real broker. It's specified in
-`testing.md` and is the next milestone; until it runs, "interoperable" rests on
-the shared conformance suite, which is a strong guarantee but not the same as a
-live end-to-end test.
+And interop is **verified over the wire**: a dockerized matrix
+([`e2e/`](e2e/)) runs all **16 ordered commander×handler language pairs** against
+a real mosquitto broker — nine scenarios per pair (payload fidelity incl. a
+boundary-sized envelope, progress, cancellation, pool-full `$busy`, a
+heartbeats-only silent call) plus orchestrated disruptions: a handler killed
+mid-call is detected as `$executionStale` by every caller language, and a broker
+restarted mid-call is ridden out through reconnect and retry to a successful
+result. A QoS-1 pass covers adapter compatibility. One honest gap remains
+recorded: QoS-1 *redelivery deduplication* over a real broker needs persistent
+sessions and induced disconnects — future work; the dedup logic itself is
+vector-verified in all four libraries.
 
 ## Status & roadmap
 
 **Pre-1.0.** All four reference implementations are complete and pass their unit
-tests and the shared 41-vector conformance suite. Because it's before 1.0, the
-public APIs may still change.
+tests, the shared 41-vector conformance suite, and the full over-the-wire e2e
+matrix (16 language pairs, deep disruption scenarios included). Because it's
+before 1.0, the public APIs may still change.
 
 Not done yet, roughly in order:
 

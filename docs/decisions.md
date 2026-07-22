@@ -246,3 +246,15 @@ outbound-only; inbound/connected/tick live on the library objects (no stored clo
 the cap-disable parity set (C# `null` / TS `null` / Python `math.inf`).
 **Rejected:** an error reply for oversize inbound (amplification, same as malformed input); a
 `$`-code for local pool exhaustion (not a wire condition).
+
+## 2026-07-22 — Adapter contract addition from the e2e matrix
+
+**Decision:** adapters MUST fire the library's connected callback off the client's connect call
+stack (defer via task/queue/next-tick). Found live: MQTTnet raises its connected event
+synchronously inside `ConnectAsync`; the library's callback re-subscribes (calling back into
+the client) under its dispatch gate → inline forwarding deadlocks and silently freezes every
+timer. The e2e `broker-restart` scenario exposed it; design.md carries the contract, the C#
+example adapter demonstrates the deferral.
+**Also recorded:** QoS-1 redelivery-dedup over a real broker remains an open gap (needs
+persistent sessions + induced disconnects); the e2e QoS-1 pass claims adapter compatibility
+only.

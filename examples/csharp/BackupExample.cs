@@ -86,9 +86,13 @@ namespace Parley.Examples
 
             // On every (re)connect, tell Parley — it re-subscribes its topics in
             // response, which is how a dropped connection self-heals.
+            // CAUTION: MQTTnet raises ConnectedAsync synchronously inside ConnectAsync,
+            // and Parley's connected callback calls back into the client (SubscribeAsync)
+            // while holding its dispatch gate — forwarding inline can re-enter the
+            // client's connect path and deadlock. Always defer off the connect stack:
             _client.ConnectedAsync += _ =>
             {
-                RaiseConnected();
+                _ = Task.Run(RaiseConnected);
                 return Task.CompletedTask;
             };
         }

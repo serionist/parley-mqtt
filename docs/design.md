@@ -39,6 +39,12 @@ Cross-language contracts settled by the reference implementation:
   synchronously from inside `publish` (in-process loopback). Implementations therefore complete
   ALL state mutation and timer scheduling for a transition BEFORE invoking `adapter.publish` —
   a re-entrant reply must find the transition already consistent.
+- **Fire the connected callback OFF the client's connect call stack.** Some MQTT clients raise
+  their connected event synchronously inside their own connect call (MQTTnet does). The
+  library's connected callback re-subscribes — which calls back into the client — so an adapter
+  that forwards the event inline can re-enter the client's connect path and deadlock while the
+  library holds its dispatch gate. Adapters defer the forward (task/queue/next-tick). Found
+  live by the e2e broker-restart scenario.
 - **Thrown cancellation maps to `$cancelled`.** A handler that unwinds via a cancellation throw
   while its execution signal is aborted (`OperationCanceledException`, `AbortError`, …) yields
   the same `$cancelled` result as one that returns a cancelled outcome; only a non-cancellation

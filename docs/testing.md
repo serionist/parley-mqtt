@@ -88,6 +88,16 @@ topic prefix, and aggregates the reports. The diagonal (X→X) doubles as each l
 real-broker integration test. Adding a language = adding its peer image; the matrix grows by
 itself.
 
+Beyond the per-pair suite, the driver orchestrates **deep disruption scenarios** on a fixed
+pair rotation, coordinated via flushed stdout barrier lines from the commander peer:
+`stale-detect` (handler container SIGKILLed mid-call → the caller must end `$executionStale`)
+and `broker-restart` (mosquitto bounced with `-t 1` mid-call → the call must complete through
+reconnect → resubscribe → retry bridging). A full **QoS-1 pass** covers adapter compatibility
+(PUBACK flow, no stall); it deliberately does NOT claim redelivery-dedup coverage — with clean
+sessions and `persistence false` no redelivery path exists. **Recorded gap:** QoS-1 redelivery
+deduplication over a real broker needs persistent sessions + induced disconnects (future
+work); the dedup logic itself is pinned by the layer-2 vectors in all four implementations.
+
 ## Gates
 
 A change is done when: the language builds warnings-clean, its formatter verifies no-changes, its
