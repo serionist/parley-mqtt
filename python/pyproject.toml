@@ -1,0 +1,101 @@
+[build-system]
+requires = ["hatchling==1.31.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "parley"
+version = "1.0.0"
+description = "Request/response RPC over MQTT — the Python (asyncio) reference implementation of Parley protocol v1."
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["mqtt", "rpc", "asyncio", "request-response", "iot"]
+authors = [{ name = "Parley contributors" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Framework :: AsyncIO",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Communications",
+  "Topic :: Internet",
+  "Typing :: Typed",
+]
+# Zero required runtime dependencies in core — bring your own MQTT client via a transport adapter.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "ruff==0.15.22",
+  "mypy==2.3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/parley/parley"
+Repository = "https://github.com/parley/parley"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/parley"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/parley", "tests"]
+
+# --- Ruff (format + lint) ---
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "W",    # pycodestyle warnings
+  "F",    # pyflakes
+  "I",    # isort
+  "B",    # flake8-bugbear
+  "UP",   # pyupgrade
+  "C4",   # flake8-comprehensions
+  "SIM",  # flake8-simplify
+  "RUF",  # ruff-specific
+]
+# The formatter owns code line width; long docstrings/comments stay readable (E501 off).
+# RUF002/RUF003 flag intentional typography (en dashes, §, arrows) in docstrings/comments that
+# mirror the protocol spec's prose — kept for readability.
+ignore = ["E501", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests reach into private members deliberately (bounded-state / re-entrancy inspection) and use
+# broad excepts to prove containment.
+"tests/**" = ["B017", "SIM117"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["parley"]
+
+# --- mypy (strict) ---
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+enable_error_code = ["redundant-expr", "truthy-bool", "ignore-without-code"]
+
+# --- pytest / pytest-asyncio ---
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"
+filterwarnings = [
+  "error",
+  "error:coroutine .* was never awaited:RuntimeWarning",
+  "error::pytest.PytestUnraisableExceptionWarning",
+]

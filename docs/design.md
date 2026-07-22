@@ -114,8 +114,11 @@ commander = ParleyCommander[BackupRequest, BackupProgress, BackupResult, BackupE
 
 result = await commander.execute(
     BackupRequest(...),
-    options=ParleyCallOptions(execution_timeout=600.0),
-    on_progress=lambda p: ...)
+    options=ParleyCallOptions(execution_timeout=600.0),   # seconds; None inherits, math.inf disables
+    on_progress=lambda p: ...,
+    signal=cancel_signal)   # ParleyCancelSignal: .aborted + a SYNCHRONOUS fire-on-abort listener —
+                            # never task-cancellation of execute() (outcomes are values).
+                            # asyncio.Event/Future do not satisfy it; an Event adapter ships.
 
 if result.is_success: use(result.value)
 else: handle(result.error)
