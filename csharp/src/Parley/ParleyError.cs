@@ -26,7 +26,7 @@ namespace Parley
         /// <summary>Optional human-readable detail (the <c>m</c> field), when supplied by the handler.</summary>
         public string? Message { get; }
 
-        /// <summary><see langword="true"/> when <see cref="Code"/> is one of the five builtin protocol codes.</summary>
+        /// <summary><see langword="true"/> when <see cref="Code"/> is one of the six builtin protocol codes.</summary>
         public bool IsBuiltin => _isBuiltin;
 
         /// <summary>The builtin code. Only meaningful when <see cref="IsBuiltin"/> is <see langword="true"/>.</summary>

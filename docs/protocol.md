@@ -102,7 +102,7 @@ generator is injectable per implementation for constrained devices.
 ## 5. Error codes
 
 Error codes are strings. Codes beginning with `$` are **reserved for the protocol**; consumer
-(custom) codes MUST NOT begin with `$`. The five builtin codes:
+(custom) codes MUST NOT begin with `$`. The six builtin codes:
 
 | Code | Origin | Meaning |
 |---|---|---|

@@ -7,9 +7,10 @@ MQTT broker and connection they already have.
 
 *A "parley" is a conversation between two parties to reach agreement — the shape of an RPC call.*
 
-**Status:** the wire protocol ([`docs/protocol.md`](docs/protocol.md), normative) and the
-cross-language design ([`docs/design.md`](docs/design.md)) are written; the four reference
-libraries are not built yet. Rationale for the design lives in
+**Status:** the wire protocol ([`docs/protocol.md`](docs/protocol.md), normative), the
+cross-language design ([`docs/design.md`](docs/design.md)), the conformance-vector suite
+([`docs/conformance/`](docs/conformance/)), and the **C# reference implementation**
+([`csharp/`](csharp/)) exist; Python, JS/TS, and C++ are next. Rationale for the design lives in
 [`docs/decisions.md`](docs/decisions.md).
 
 ## Why
@@ -40,7 +41,8 @@ Parley makes it a proper, reusable thing that stays thin enough for constrained 
   and a wire-level cancel that actually reaches the running handler.
 - **Errors that tell you what happened** — builtin codes distinguish never-accepted (`$noAck`),
   handler-full (`$busy`), went-silent (`$executionStale`), never-finished (`$executionTimeout`),
-  and cancelled (`$cancelled`) — plus your own typed error codes for domain failures.
+  cancelled (`$cancelled`), and payload-mismatch (`$decodeError`) — plus your own typed error
+  codes for domain failures.
 - **Typed with your language's own tools** — generics/templates/type hints bind request,
   progress, result, and error types; no schema compiler, no code generation.
 - **Four languages, one protocol** — C# (.NET), Python, JS/TS (Node + edge engines), and C++

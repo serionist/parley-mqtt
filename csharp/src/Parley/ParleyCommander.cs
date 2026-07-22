@@ -12,7 +12,7 @@ namespace Parley
     /// <summary>
     /// The caller side of one command type (protocol.md §6, rules C1–C8). Generic over the request,
     /// progress, result, and custom-error types. Multiple commanders MAY share a topic set; each filters
-    /// inbound traffic by command id. Expected outcomes — including all five builtin codes — are returned
+    /// inbound traffic by command id. Expected outcomes — including all six builtin codes — are returned
     /// as <see cref="ParleyResult{TResult,TError}"/> values, never thrown.
     /// </summary>
     /// <typeparam name="TRequest">The request payload type.</typeparam>

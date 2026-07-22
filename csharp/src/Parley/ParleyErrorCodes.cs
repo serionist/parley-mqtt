@@ -43,7 +43,7 @@ namespace Parley
         /// <summary>Attempts to map a wire error string onto a builtin code.</summary>
         /// <param name="code">The wire error string.</param>
         /// <param name="builtin">The mapped builtin code, when the return value is <see langword="true"/>.</param>
-        /// <returns><see langword="true"/> when <paramref name="code"/> is one of the five builtin codes.</returns>
+        /// <returns><see langword="true"/> when <paramref name="code"/> is one of the six builtin codes.</returns>
         public static bool TryParse(string? code, out ParleyBuiltinError builtin)
         {
             switch (code)

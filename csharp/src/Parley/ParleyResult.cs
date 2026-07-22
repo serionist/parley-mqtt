@@ -4,7 +4,7 @@ namespace Parley
 {
     /// <summary>
     /// The single terminal outcome of a command observed by the commander: success with a typed result,
-    /// or an error (builtin or custom). Every expected outcome — including all five builtin codes — is
+    /// or an error (builtin or custom). Every expected outcome — including all six builtin codes — is
     /// returned as a value; exceptions are reserved for programming errors.
     /// </summary>
     /// <typeparam name="TResult">The result payload type.</typeparam>
