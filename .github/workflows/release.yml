@@ -1,0 +1,312 @@
+# Parley release workflow.
+#
+# Trigger: push a tag `vX.Y.Z`. The workflow (1) verifies the tag matches all five manifest version
+# fields and sits on main, (2) runs the full gates — the four language suites (C#, JS, Python on 3.10
+# AND 3.14, C++ plain + ASan/UBSan) and the docker e2e interop matrix — and only if every gate is
+# green (3) packs + publishes each package via OIDC trusted publishing wherever supported, then (4)
+# creates the GitHub Release. See docs/publishing.md for the one-time registry setup each publish needs.
+#
+# Security posture: no permissions by default; each job grants itself the minimum. `id-token: write`
+# is present only on jobs that mint an OIDC token (npm, PyPI, NuGet). Every third-party action is
+# pinned to a full commit SHA (Dependabot keeps them current). No long-lived registry secret is
+# required except the documented bootstrap/compat cases (npm first publish; PlatformIO).
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Least privilege: jobs opt in to exactly what they need.
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------------------------
+  # 1. Verify the tag is a real, consistent release point before anything is built or published.
+  # ---------------------------------------------------------------------------------------------
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout (full history — needed for the ancestor-of-main check)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Tag must equal all five manifest versions, and sit on main
+        id: check
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          echo "Releasing tag '$tag' (version '$version')"
+
+          # (a) the five manifests agree with each other
+          scripts/bump-version.sh --check
+
+          # (b) ...and they equal the tag
+          manifest="$(scripts/bump-version.sh --check | awk '/csharp\/Directory.Build.props/ {print $2; exit}')"
+          if [ "$manifest" != "$version" ]; then
+            echo "::error::tag version '$version' != manifest version '$manifest'" >&2
+            exit 1
+          fi
+
+          # (c) the tagged commit must be an ancestor of main (no publishing off a stray branch)
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "::error::tagged commit $GITHUB_SHA is not an ancestor of origin/main" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------------------------
+  # 2. Gates — the four language suites + the e2e interop matrix. Publishing is blocked unless all
+  #    of these are green.
+  # ---------------------------------------------------------------------------------------------
+  gate-dotnet:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - name: dotnet test (Release; builds netstandard2.0 + net10.0, warnings-as-errors)
+        working-directory: csharp
+        run: dotnet test Parley.sln -c Release --nologo
+
+  gate-node:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: npm ci + build + typecheck + test
+        working-directory: js
+        run: |
+          npm ci
+          npm run build
+          npm run typecheck
+          npm test
+
+  gate-python:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # The advertised floor AND the newest supported interpreter.
+        python-version: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (editable, dev extras) + lint + typecheck + test
+        working-directory: python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          ruff check src tests
+          ruff format --check src tests
+          mypy src
+          pytest -q
+
+  gate-cpp:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitize: ["OFF", "ON"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Configure + build + ctest (sanitize=${{ matrix.sanitize }})
+        run: |
+          cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Debug -DPARLEY_SANITIZE=${{ matrix.sanitize }}
+          cmake --build build -j
+          ctest --test-dir build --output-on-failure
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: halt_on_error=1
+
+  gate-e2e:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Docker interop matrix (16 pairs x 9 scenarios + self-checks + deep + QoS-1)
+        working-directory: e2e
+        run: ./run-matrix.sh ci
+
+  # ---------------------------------------------------------------------------------------------
+  # 3. Publish — one job per ecosystem, each gated on ALL suites. Minimal permissions each.
+  # ---------------------------------------------------------------------------------------------
+  publish-npm:
+    needs: [verify, gate-dotnet, gate-node, gate-python, gate-cpp, gate-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # provenance (both paths) + tokenless trusted publishing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # NOTE: no registry-url on setup-node — writing an .npmrc _authToken line with an EMPTY
+      # env var suppresses npm's OIDC exchange entirely (actions/setup-node#1551), which would
+      # make every tokenless release silently fail auth. The two paths are fully separated:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Ensure npm supports trusted publishing (>= 11.5.1)
+        run: npm install -g npm@latest
+      - name: Install
+        working-directory: js
+        run: npm ci
+      - name: Publish (bootstrap path — first release only, NPM_TOKEN secret set)
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        working-directory: js
+        # prepack builds dist/; publishConfig sets access=public + provenance=true (provenance
+        # works on the token path because id-token: write is present on this job).
+        run: |
+          echo "//registry.npmjs.org/:_authToken=\${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish (steady state — tokenless OIDC trusted publishing)
+        if: ${{ secrets.NPM_TOKEN == '' }}
+        working-directory: js
+        # No auth config at all: npm >= 11.5.1 detects the CI OIDC context and performs the
+        # trusted-publishing exchange itself; provenance is generated automatically.
+        run: npm publish
+
+  publish-pypi:
+    needs: [verify, gate-dotnet, gate-node, gate-python, gate-cpp, gate-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        working-directory: python
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Publish to PyPI (trusted publishing — pending publisher creates the project on first use)
+        uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # v1.14.1
+        with:
+          packages-dir: python/dist
+
+  publish-nuget:
+    needs: [verify, gate-dotnet, gate-node, gate-python, gate-cpp, gate-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # NuGet trusted publishing (OIDC -> short-lived API key)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # SourceLink embeds the commit; keep history available
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - name: Pack (deterministic CI build; nupkg + snupkg)
+        run: >
+          dotnet pack csharp/src/Parley/Parley.csproj -c Release
+          -p:ContinuousIntegrationBuild=true -o artifacts
+      - name: NuGet login (OIDC -> temporary 1h API key)
+        id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          # nuget.org account USERNAME (profile name), not an email address.
+          user: ${{ secrets.NUGET_USER }}
+      - name: Push (the matching .snupkg is pushed automatically alongside the .nupkg)
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: >
+          dotnet nuget push "artifacts/*.nupkg"
+          --api-key "$NUGET_API_KEY"
+          --source https://api.nuget.org/v3/index.json
+
+  publish-platformio:
+    needs: [verify, gate-dotnet, gate-node, gate-python, gate-cpp, gate-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # no OIDC — PlatformIO uses a token secret
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+      - name: Publish to the PlatformIO Registry (packs cpp/ per library.json export)
+        working-directory: cpp
+        run: pio pkg publish --no-interactive
+        env:
+          PLATFORMIO_AUTH_TOKEN: ${{ secrets.PLATFORMIO_AUTH_TOKEN }}
+
+  # ---------------------------------------------------------------------------------------------
+  # 4. GitHub Release — created only after every package is out. contents:write ONLY (no OIDC).
+  # ---------------------------------------------------------------------------------------------
+  github-release:
+    needs:
+      [
+        verify,
+        publish-npm,
+        publish-pypi,
+        publish-nuget,
+        publish-platformio,
+      ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Extract this version's CHANGELOG section
+        id: notes
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" {grab=1; next}
+            grab && /^## \[/ {exit}
+            grab {print}
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No CHANGELOG section for $VERSION — falling back to auto-generated notes." >&2
+          fi
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${GITHUB_REF_NAME}"
+          --title "Parley ${GITHUB_REF_NAME}"
+          --notes-file release-notes.md
+          --generate-notes
+          --verify-tag
+          --latest

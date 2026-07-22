@@ -101,7 +101,7 @@ in [`examples/`](examples/).)
 ```ts
 import {
   ParleyCommander, ParleyCommandHandler, ParleyOutcome, ParleyTopics, type ParleyExecution,
-} from 'parley';
+} from 'parley-mqtt';
 
 // `adapter` is your ParleyConnectionAdapter over an MQTT client — see examples/js/.
 const topics = new ParleyTopics(
@@ -136,19 +136,27 @@ else console.log(`failed: ${result.error.code}`);
 
 ## Using the library
 
-The libraries are **not on package registries yet** (that comes with the 1.0
-release — see the roadmap). For now you consume them straight from this
-repository. Each detailed example lives in [`examples/`](examples/); a taste of
-each idiom follows.
+At **v1.0** the four libraries ship on the standard registries — one lockstep
+version each release. Install the one you need (the names differ by ecosystem
+because the bare `parley` was taken on npm and PyPI):
+
+| Ecosystem | Install | Package name |
+|---|---|---|
+| npm | `npm install parley-mqtt` | `parley-mqtt` |
+| PyPI | `pip install parley-mqtt` | `parley-mqtt` (imports as `parley`) |
+| NuGet | `dotnet add package Parley.Mqtt` | `Parley.Mqtt` (assembly `Parley`) |
+| PlatformIO | `pio pkg install -l "ParleyMqtt"` | `ParleyMqtt` |
+
+Each detailed example lives in [`examples/`](examples/); a taste of each idiom
+follows.
 
 ### TypeScript / JavaScript → [`examples/js/`](examples/js/)
 
-Consume from source: add `js/` as a local/workspace dependency (or build it and
-point at `js/dist`). Zero runtime dependencies; runs on Node 18+, Deno, Bun, and
-edge engines.
+`npm install parley-mqtt` — zero runtime dependencies; runs on Node 18+, Deno,
+Bun, and edge engines. Ships ESM + CJS + `.d.ts`.
 
 ```ts
-import { ParleyCommander, ParleyTopics } from 'parley';
+import { ParleyCommander, ParleyTopics } from 'parley-mqtt';
 
 const topics = new ParleyTopics('home/backup/req', 'home/backup/hb', 'home/backup/prg', 'home/backup/res');
 const commander = new ParleyCommander<Req, Prog, Res, Err>(adapter, topics);
@@ -162,8 +170,9 @@ if (result.ok) console.log(result.value.bytesWritten);
 
 ### Python → [`examples/python/`](examples/python/)
 
-Consume from source: `pip install ./python`. Pure `asyncio`, zero required
-runtime dependencies, fully type-hinted (`py.typed`).
+`pip install parley-mqtt` — then `import parley` (the distribution is
+`parley-mqtt`; the module stays `parley`). Pure `asyncio`, zero required runtime
+dependencies, fully type-hinted (`py.typed`).
 
 ```python
 from parley import ParleyCommander, ParleyTopics
@@ -182,7 +191,7 @@ else:
 
 ### C# / .NET → [`examples/csharp/`](examples/csharp/)
 
-Consume from source: add a project reference to `csharp/src/Parley/Parley.csproj`.
+`dotnet add package Parley.Mqtt` (the assembly and namespace stay `Parley`).
 Targets `net10.0` and `netstandard2.0`; trim- and AOT-friendly via
 source-generated JSON.
 
@@ -201,8 +210,11 @@ else Console.WriteLine(result.Error.Code);
 
 ### C++ / ESP32-Arduino → [`examples/cpp/`](examples/cpp/)
 
-Consume from source: add `cpp/src` to your include path (Arduino: drop it into
-your libraries; PlatformIO: reference the repo). Supply your own ArduinoJson.
+**PlatformIO:** add `ParleyMqtt` to your `lib_deps` (or `pio pkg install -l "ParleyMqtt"`);
+ArduinoJson is pulled in as a dependency. **Arduino IDE / Library Manager:** not
+listed there yet — the Library Manager requires the library at a repo root, so an
+automated single-library mirror is planned (see the roadmap); until then drop
+`cpp/src` into your `libraries/` folder and supply your own ArduinoJson.
 Statically allocated, no exceptions/RTTI, tick-driven from `loop()`.
 
 ```cpp
@@ -272,19 +284,25 @@ vector-verified in all four libraries.
 
 ## Status & roadmap
 
-**Pre-1.0.** All four reference implementations are complete and pass their unit
-tests, the shared 41-vector conformance suite, and the full over-the-wire e2e
-matrix (16 language pairs, deep disruption scenarios included). Because it's
-before 1.0, the public APIs may still change.
+**v1.0 — stable.** All four reference implementations are complete and pass their
+unit tests, the shared 41-vector conformance suite, and the full over-the-wire
+e2e matrix (16 language pairs, deep disruption scenarios included), and ship on
+the package registries (npm · PyPI · NuGet · PlatformIO) at one lockstep version.
+v1.0 is a semver commitment: the wire protocol is frozen at `v:1` and the public
+APIs are stable — a breaking change means a new major version (and, on the wire,
+the protocol `v` rules in [`docs/protocol.md`](docs/protocol.md)). One honest gap
+stays recorded: QoS-1 redelivery-deduplication over a real broker is not yet
+exercised end-to-end (the dedup logic itself is vector-verified in all four
+libraries).
 
-Not done yet, roughly in order:
+On the roadmap:
 
-- **The end-to-end matrix** — verified test peers for all four languages talking
-  over a real broker (`docs/testing.md`, layer 3).
 - **Reference transport adapters** as small packages, so you don't hand-write one
   (the examples' adapters are illustrative for now).
-- **Publishing to package registries** (npm, PyPI, NuGet, Arduino/PlatformIO) at
-  1.0.
+- **Arduino Library Manager** listing via an automated single-library mirror repo
+  (PlatformIO ships now; the Library Manager requires a library at the repo root).
+- **QoS-1 redelivery-dedup e2e coverage** — needs persistent sessions and induced
+  disconnects over a real broker.
 
 ## Security
 

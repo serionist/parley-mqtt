@@ -258,3 +258,54 @@ example adapter demonstrates the deferral.
 **Also recorded:** QoS-1 redelivery-dedup over a real broker remains an open gap (needs
 persistent sessions + induced disconnects); the e2e QoS-1 pass claims adapter compatibility
 only.
+
+## 2026-07-22 — Package identity, v1.0.0 lockstep, and OIDC-first publishing
+
+**Decision:** publish all four libraries at **v1.0.0**, one lockstep version per release, from the
+public repo `github.com/serionist/parley`, under names that survive the taken bare `parley`:
+**npm `parley-mqtt`**, **PyPI `parley-mqtt`** (import package stays `parley`), **NuGet `Parley.Mqtt`**
+(assembly/namespace stay `Parley`), **PlatformIO `ParleyMqtt`**. MIT, © The Parley Authors. v1.0.0
+is a semver + wire-stability commitment (protocol frozen at `v:1`; breaking changes = major bump).
+Releases are cut by pushing a `v*` tag; a GitHub Actions workflow verifies the tag equals all five
+manifest version fields (and that the tagged commit is an ancestor of `main`), runs the full gates
+(four language suites + the docker e2e matrix), then publishes each package, and finally creates a
+GitHub Release. Publishing uses **OIDC trusted publishing wherever the registry supports it**, so
+no long-lived registry secret is stored — an explicit, narrow exception to the no-secrets
+convention, which governs *broker* credentials, not CI publish identity.
+
+**Per-registry reality (verified against current official docs at implementation):**
+- **npm** has **no pending-publisher** mechanism — the very first publish of a new name cannot be
+  tokenless. Bootstrap (one-time, [`docs/publishing.md`](publishing.md)): a temporary granular
+  automation token as a repo secret → the CI job publishes 1.0.0 with `--provenance` (provenance
+  works with a token when `id-token: write` is present) → configure the npm Trusted Publisher →
+  delete the token. The workflow's npm job is **dual-path**: it uses `NODE_AUTH_TOKEN` if the secret
+  is present, otherwise tokenless OIDC; `id-token: write` is always set. Trusted publishing needs
+  **npm ≥ 11.5.1 / Node ≥ 22.14**, so the job upgrades npm before publishing.
+- **PyPI** supports a **pending publisher** that creates the project on first use; the runbook lists
+  the exact fields (project name + owner/repo + workflow filename + environment) and the
+  **squat-invalidation caveat** (if someone registers `parley-mqtt` first, the pending publisher is
+  invalidated). Publish via `pypa/gh-action-pypi-publish`.
+- **NuGet** uses an **owner-scoped** trusted-publishing policy (no package pre-existence needed):
+  `NuGet/login` (user = nuget.org **username**, not email) exchanges the OIDC token for a 1-hour API
+  key → `dotnet nuget push`. Gradual rollout is in progress; the runbook documents an API-key
+  fallback.
+- **PlatformIO** has no OIDC: a `PLATFORMIO_AUTH_TOKEN` repo secret drives `pio pkg publish` (which
+  packs `cpp/` from the subdir). Documented exception to no-secrets, same rationale as above.
+
+**PEP 639:** Python metadata uses the SPDX `license = "MIT"` expression + `license-files`, and the
+deprecated `License :: OSI Approved :: MIT License` classifier is **dropped** — the two are mutually
+exclusive under Metadata 2.4 and modern tooling rejects the combination. Status classifier moves to
+`5 - Production/Stable`.
+
+**Arduino Library Manager deferred:** the Library Manager requires the library at the **root** of a
+registered repo; a monorepo subdir does not qualify. v1 ships to the PlatformIO Registry (which
+packs from `cpp/`); an automated single-library mirror repo (`serionist/parley-cpp`) for the
+Arduino LM is a **follow-up**, not built now.
+
+**Supply chain:** every third-party GitHub Action is **SHA-pinned** to a resolved commit (annotated
+tags resolved to the underlying commit), kept current by Dependabot; C# packages carry SourceLink +
+a `snupkg` symbol package built deterministically in CI. Packaged, registry-rendered READMEs (with
+absolute repo links) ship per ecosystem so the root `README.md` keeps its relative links for GitHub.
+**Rejected:** a single shared package name (bare `parley` unavailable); storing long-lived registry
+API keys as the primary path (OIDC preferred); rewriting the root README's links to absolute for all
+registries (per-package READMEs are cleaner and keep GitHub rendering intact).

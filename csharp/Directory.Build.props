@@ -10,4 +10,13 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <!--
+    Lockstep package version across all four ecosystems (bump-version.sh keeps the five manifests
+    in step). Only the packable core (src/Parley) is published; the test/peer projects inherit this
+    version harmlessly. The Version element below is edited by bump-version.sh; keep it on one line.
+  -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
 </Project>

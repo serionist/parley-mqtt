@@ -36,7 +36,7 @@ import {
   type ParleyExecution,
   type ParleyMessageHandler,
   type ParleyOutcome as ParleyOutcomeType,
-} from 'parley';
+} from 'parley-mqtt';
 
 // ---------------------------------------------------------------------------
 // 1. The message shapes for this command.

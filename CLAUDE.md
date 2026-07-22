@@ -10,8 +10,14 @@ call each other over the MQTT broker they already share. Purpose + functionaliti
 assertions incl. ASan/UBSan) — each deep-reviewed CLEAN against the same vector net, AND the
 docker e2e matrix (`e2e/`): 16 commander×handler pairs × 9 scenarios + stale-detect +
 broker-restart disruptions + a QoS-1 compatibility pass, ALL GREEN ×2. Recorded gap: QoS-1
-redelivery-dedup over the wire (needs persistent sessions; future work). Next candidates:
-package publishing, CI wiring, reference adapter packages.
+redelivery-dedup over the wire (needs persistent sessions; future work).
+
+**Publishing is wired for v1.0.0 (lockstep):** npm `parley-mqtt` · PyPI `parley-mqtt` (module
+stays `parley`) · NuGet `Parley.Mqtt` (assembly stays `Parley`) · PlatformIO `ParleyMqtt`, from
+`github.com/serionist/parley` via a tag-triggered GitHub Actions release workflow using OIDC
+trusted publishing (runbook: [`docs/publishing.md`](docs/publishing.md)). The first push + the
+first `v1.0.0` tag are user-gated (one-time registry setup required). Next candidates: PR-CI for
+day-to-day development, reference adapter packages, the Arduino Library Manager mirror.
 
 ## Standing instructions
 
@@ -37,10 +43,13 @@ package publishing, CI wiring, reference adapter packages.
 ```
 README.md         the OSS front door — pitch · how it works · per-language usage
 LICENSE           MIT © 2026 The Parley Authors
-docs/             protocol.md (normative) · design.md · testing.md · decisions.md · conformance/
-csharp/ python/   the four reference libraries
+CHANGELOG.md      release notes (lockstep across all four packages)
+docs/             protocol.md (normative) · design.md · testing.md · decisions.md · publishing.md · conformance/
+csharp/ python/   the four reference libraries (each with a packaged README + publish manifest)
 js/ cpp/
 examples/         one worked example per language (the same backup command) + illustrative adapters
+scripts/          bump-version.sh — lockstep version bump across the five manifest fields
+.github/          release workflow (tag v* → gates → OIDC publish) + dependabot
 .claude/          CONVENTIONS.md + skills (plan-first · review-plan · review-code · update-deps)
 ```
 

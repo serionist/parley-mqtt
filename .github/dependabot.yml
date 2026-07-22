@@ -1,0 +1,19 @@
+# Keep the SHA-pinned third-party GitHub Actions in the release workflow current. Dependabot opens a
+# PR when a newer release of a pinned action exists, updating both the SHA and the `# vX.Y.Z` comment.
+#
+# Language dependencies (npm / pip / NuGet / ArduinoJson) are deliberately NOT managed here: they are
+# pinned latest-stable and bumped deliberately through the `update-deps` skill, which consults each
+# library's changelog for breaking changes — a discipline a per-dependency bot would fight.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    groups:
+      # One PR per week for routine action bumps, rather than a flurry.
+      actions:
+        patterns:
+          - "*"

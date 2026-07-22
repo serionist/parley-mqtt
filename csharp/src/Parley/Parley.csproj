@@ -9,11 +9,45 @@
     <Description>Request/response RPC over MQTT — the transport-free protocol core (C# reference implementation).</Description>
   </PropertyGroup>
 
+  <!--
+    NuGet package metadata. Distribution id is `Parley.Mqtt` (the bare `Parley` id is taken);
+    the assembly / namespace stay `Parley`. Version is inherited from csharp/Directory.Build.props
+    (lockstep across all four ecosystems). License is the SPDX expression; the packaged README is
+    csharp/README.md (registry-rendered, absolute links). SourceLink + a snupkg symbol package +
+    a deterministic CI build make the sources navigable from the debugger.
+  -->
+  <PropertyGroup>
+    <PackageId>Parley.Mqtt</PackageId>
+    <Authors>The Parley Authors</Authors>
+    <Company>The Parley Authors</Company>
+    <Product>Parley</Product>
+    <Copyright>Copyright (c) 2026 The Parley Authors</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/serionist/parley</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/serionist/parley</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>mqtt;rpc;request-response;iot;esp32;protocol;messaging</PackageTags>
+    <PackageReleaseNotes>https://github.com/serionist/parley/blob/main/CHANGELOG.md</PackageReleaseNotes>
+    <!-- SourceLink / deterministic-build knobs. ContinuousIntegrationBuild is set true only in CI. -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Packaged README (packs to the nupkg root as README.md; not compiled/shipped in the assembly). -->
+    <None Include="../../README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- System.Text.Json (source generators) — in-box on net10.0, packaged for netstandard2.0. -->
     <PackageReference Include="System.Text.Json" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
     <!-- TimeProvider polyfill — in-box on net10.0. -->
     <PackageReference Include="Microsoft.Bcl.TimeProvider" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
+    <!-- SourceLink: build/pack-time only, nothing added to the consumer's dependency graph. -->
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

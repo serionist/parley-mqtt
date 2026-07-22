@@ -1,9 +1,27 @@
 {
-  "name": "parley",
-  "version": "0.1.0",
-  "private": true,
+  "name": "parley-mqtt",
+  "version": "1.0.0",
   "description": "Request/response RPC over MQTT — TypeScript/JS reference implementation of the Parley v1 protocol.",
   "license": "MIT",
+  "author": "The Parley Authors",
+  "homepage": "https://github.com/serionist/parley/tree/main/js#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/serionist/parley.git",
+    "directory": "js"
+  },
+  "bugs": {
+    "url": "https://github.com/serionist/parley/issues"
+  },
+  "keywords": [
+    "mqtt",
+    "rpc",
+    "request-response",
+    "iot",
+    "protocol",
+    "messaging",
+    "esp32"
+  ],
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -23,16 +41,22 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "src"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.src.json",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "npm run build"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

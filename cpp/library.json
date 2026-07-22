@@ -1,13 +1,20 @@
 {
-  "name": "Parley",
-  "version": "0.1.0",
+  "name": "ParleyMqtt",
+  "version": "1.0.0",
   "description": "Request/response RPC over MQTT for ESP32/Arduino — statically allocated, no-exceptions, tick-driven. Commander + handler protocol core over a consumer-supplied MQTT transport adapter and an ArduinoJson codec.",
   "keywords": "mqtt, rpc, esp32, arduino, request-response, parley",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/parley.git"
+    "url": "https://github.com/serionist/parley.git"
   },
+  "authors": [
+    {
+      "name": "The Parley Authors",
+      "url": "https://github.com/serionist/parley",
+      "maintainer": true
+    }
+  ],
   "frameworks": "arduino",
   "platforms": "*",
   "headers": "Parley.h",
@@ -17,6 +24,13 @@
       "version": "7.4.3"
     }
   ],
+  "export": {
+    "include": [
+      "src",
+      "library.json",
+      "library.properties"
+    ]
+  },
   "build": {
     "srcDir": "src",
     "flags": [

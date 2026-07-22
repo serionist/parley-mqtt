@@ -12,6 +12,11 @@
     <PackageVersion Include="Microsoft.Bcl.TimeProvider" Version="10.0.10" />
   </ItemGroup>
 
+  <!-- Packaging: SourceLink (build/pack-time only, PrivateAssets=all in the core project). -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.301" />
+  </ItemGroup>
+
   <!-- Test dependencies -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />

@@ -41,9 +41,9 @@ Please read this before copying anything into production.
 
 ## Running them
 
-The reference libraries are **not published to package registries yet**, so you
-consume them from this repository (see each language's section in the top-level
-[`README.md`](../README.md)). You also need a running MQTT broker — a local
+From v1.0.0 the libraries ship on the standard registries — `parley-mqtt` (npm,
+PyPI), `Parley.Mqtt` (NuGet), `ParleyMqtt` (PlatformIO); install per the
+top-level [`README.md`](../README.md), or consume straight from this repository. You also need a running MQTT broker — a local
 [Mosquitto](https://mosquitto.org/) is perfect. Start the handler in one process
 and the commander in another; they meet on the broker.
 

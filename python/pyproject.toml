@@ -2,19 +2,25 @@
 requires = ["hatchling==1.31.0"]
 build-backend = "hatchling.build"
 
+# Distribution name is `parley-mqtt` (the bare `parley` name on PyPI is an unrelated project);
+# the import package stays `parley`. Version is lockstep across all four ecosystems
+# (bump-version.sh keeps the five manifests in step) — keep `version = "…"` on one line.
 [project]
-name = "parley"
+name = "parley-mqtt"
 version = "1.0.0"
 description = "Request/response RPC over MQTT — the Python (asyncio) reference implementation of Parley protocol v1."
 requires-python = ">=3.10"
-license = { text = "MIT" }
+readme = "README.md"
+# PEP 639: SPDX license expression + license files. Do NOT also carry a `License ::` classifier —
+# the two are mutually exclusive under Metadata 2.4 and modern build/publish tooling rejects the combo.
+license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["mqtt", "rpc", "asyncio", "request-response", "iot"]
-authors = [{ name = "Parley contributors" }]
+authors = [{ name = "The Parley Authors" }]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
   "Framework :: AsyncIO",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
@@ -37,14 +43,16 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/parley/parley"
-Repository = "https://github.com/parley/parley"
+Homepage = "https://github.com/serionist/parley"
+Repository = "https://github.com/serionist/parley"
+Issues = "https://github.com/serionist/parley/issues"
+Documentation = "https://github.com/serionist/parley/blob/main/docs/protocol.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/parley"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/parley", "tests"]
+include = ["src/parley", "tests", "README.md", "LICENSE"]
 
 # --- Ruff (format + lint) ---
 [tool.ruff]
