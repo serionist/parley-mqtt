@@ -9,8 +9,8 @@ MQTT broker and connection they already have.
 
 **Status:** the wire protocol ([`docs/protocol.md`](docs/protocol.md), normative), the
 cross-language design ([`docs/design.md`](docs/design.md)), the conformance-vector suite
-([`docs/conformance/`](docs/conformance/)), and the **C# reference implementation**
-([`csharp/`](csharp/)) exist; Python, JS/TS, and C++ are next. Rationale for the design lives in
+([`docs/conformance/`](docs/conformance/)), and the **C#** ([`csharp/`](csharp/)) and **TS/JS**
+([`js/`](js/)) implementations exist; Python and C++ are next. Rationale for the design lives in
 [`docs/decisions.md`](docs/decisions.md).
 
 ## Why
