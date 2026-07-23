@@ -104,6 +104,27 @@ set_version() {
   sed -i -E "0,/^version[[:space:]]*=[[:space:]]*\"[^\"]*\"/ s//version = \"${new}\"/" "$PYPROJECT"
   sed -i -E "s@^version=.*@version=${new}@" "$LIB_PROPS"
   set_json_first_version "$LIB_JSON" "$new"
+  sync_npm_lock "$new"
+}
+
+# js/package-lock.json is DERIVED from package.json, not a sixth source of truth (so --check
+# still validates five manifests). npm records the root version in two places; leaving them
+# stale drifts a little further every release, so keep them in step here.
+sync_npm_lock() {
+  local new="$1" lock="$ROOT/js/package-lock.json"
+  [[ -f "$lock" ]] || return 0
+  python3 - "$lock" "$new" <<'PY'
+import json, sys
+path, new = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    data = json.load(f)
+data["version"] = new
+if "" in data.get("packages", {}):
+    data["packages"][""]["version"] = new
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+PY
 }
 
 # --- main -----------------------------------------------------------------------------------
