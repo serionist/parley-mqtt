@@ -1,7 +1,7 @@
 {
   "name": "parley-mqtt",
   "version": "1.0.0",
-  "description": "Request/response RPC over MQTT — TypeScript/JS reference implementation of the Parley v1 protocol.",
+  "description": "Request/response RPC over MQTT (MQTT RPC / request-reply): typed commands with progress, cancellation, liveness heartbeats and at-most-once delivery. TypeScript/JS reference implementation of the Parley v1 protocol — zero dependencies, bring your own MQTT client.",
   "license": "MIT",
   "author": "The Parley Authors",
   "homepage": "https://github.com/serionist/parley-mqtt/tree/main/js#readme",
@@ -16,11 +16,16 @@
   "keywords": [
     "mqtt",
     "rpc",
+    "mqtt-rpc",
     "request-response",
+    "request-reply",
+    "remote-procedure-call",
     "iot",
     "protocol",
     "messaging",
-    "esp32"
+    "esp32",
+    "typescript",
+    "parley"
   ],
   "type": "module",
   "sideEffects": false,

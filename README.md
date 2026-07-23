@@ -1,102 +1,62 @@
-# Parley
+# Parley — request/response RPC over MQTT
 
-**Parley lets the different parts of your system call each other over MQTT and
-get an answer back.** You already have devices and services talking to one MQTT
-broker — an ESP32, a .NET service, a Python script, a bit of edge JavaScript.
-Parley turns that shared broker into something you can make *requests* over: call
-a command on another device, stream progress while it runs, cancel it if you
-change your mind, and receive one typed result — success or a clear error.
+[![CI](https://img.shields.io/github/actions/workflow/status/serionist/parley-mqtt/ci.yml?branch=main&event=push&label=CI)](https://github.com/serionist/parley-mqtt/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/parley-mqtt?label=npm)](https://www.npmjs.com/package/parley-mqtt)
+[![PyPI](https://img.shields.io/pypi/v/parley-mqtt?label=PyPI)](https://pypi.org/project/parley-mqtt/)
+[![NuGet](https://img.shields.io/nuget/v/Parley.Mqtt?label=NuGet)](https://www.nuget.org/packages/Parley.Mqtt)
+[![PlatformIO](https://badges.registry.platformio.org/packages/serionist/library/ParleyMqtt.svg)](https://registry.platformio.org/libraries/serionist/ParleyMqtt)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-It is a small library, not a server. It rides the MQTT connection you already
-have, in four languages that all speak one wire protocol: **C#**, **TypeScript/JS**,
-**Python**, and **C++ (ESP32/Arduino)**.
+**Parley is a small library that gives you two-way RPC — request/reply, command
+and control — over the MQTT broker your system already shares**, in four
+languages that speak one wire protocol: **C#**, **TypeScript/JS**, **Python** and
+**C++ (ESP32/Arduino)**. Publish/subscribe has no built-in notion of *"call this
+and wait for the result"*, so people bolt it on by hand — a request topic here, a
+reply topic there, a correlation id stuffed in the payload, a timeout guessed at
+— and it breaks on exactly the flaky, low-power devices that need it most.
 
-*A "parley" is a conversation between two sides to reach agreement — the shape of
-a request and its reply.*
-
-## Why
-
-MQTT is everywhere in home and industrial automation, and it's wonderful at what
-it does: publish/subscribe. A sensor publishes a reading; whoever cares is
-subscribed. But publish/subscribe has no built-in notion of **"call this and wait
-for the result."** There's no "did it work?", no return value, no "it's still
-working, hang on."
-
-So people bolt request/response on by hand — a request topic here, a reply topic
-there, a correlation id stuffed in the payload, a timeout guessed at — and it
-tends to break on exactly the flaky, low-power devices that need it most. Was the
-job slow, or did the device die? Did my request even arrive? Did the answer come
-back but I missed it?
-
-Parley makes request/response a proper, reusable thing, once, and keeps it small
-enough to run on a microcontroller.
-
-## What you get
-
-- **Reliable answers without heavyweight MQTT.** Requests are re-sent until the
-  other side shows a sign of life; results are re-sent until you acknowledge
-  them; duplicates are recognized and dropped. You get at-most-once execution
-  **without needing MQTT's QoS 2** — it's correct even at QoS 0.
-- **"Slow" is never mistaken for "dead."** While a handler works on your command,
-  it sends a small heartbeat every few seconds. So a long-running job stays
-  trusted without faking progress, and a truly unreachable device is reported as
-  exactly that — not as "still working."
-- **Progress streaming.** A long operation can send advisory progress updates
-  ("42% done") that your caller receives as they happen.
-- **Real cancellation.** Change your mind and Parley delivers an actual cancel to
-  the running handler — not just a local give-up.
-- **Errors that tell you what happened.** Every call ends in one typed outcome.
-  Alongside your own error codes, six built-in ones distinguish *no one answered*
-  from *the pool was full* from *it went silent* from *it timed out* from
-  *cancelled* from *the reply didn't match the expected type*.
-- **Small enough for tiny devices.** The C++ build is statically allocated, uses
-  no exceptions or RTTI, and is driven from your `loop()`. The others carry no
-  MQTT-client dependency at all.
-- **Bring your own MQTT client.** Parley never opens a connection, never holds
-  your broker credentials or TLS keys. You hand it a live connection through a
-  tiny adapter you write over whatever client you already use.
-- **Typed with your own language's tools.** Request, progress, result, and error
-  types are bound with generics / templates / type hints. No schema compiler, no
-  code generation.
-
-## How it works
-
-A **command** (say, `backup`) is defined by **four topic strings that you
-choose** — Parley imposes no naming scheme, so your broker's access rules stay
-entirely in your hands:
-
-| Topic (you name it) | Direction | Carries |
+| Ecosystem | Install | Package name |
 |---|---|---|
-| `request` | caller → handler | the request, the result-acknowledgement, and cancel |
-| `heartbeat` | handler → caller | "I'm alive and working on it" |
-| `progress` | handler → caller | optional progress updates |
-| `result` | handler → caller | the single final answer |
+| npm | `npm install parley-mqtt` | `parley-mqtt` |
+| PyPI | `pip install parley-mqtt` | `parley-mqtt` (imports as `parley`) |
+| NuGet | `dotnet add package Parley.Mqtt` | `Parley.Mqtt` (assembly `Parley`) |
+| PlatformIO | `pio pkg install -l "ParleyMqtt"` | `ParleyMqtt` |
 
-Every message is a small JSON object carrying a command id, so many calls can
-share the same four topics and each side sorts them out by id. A whole call looks
-like this:
+What Parley spends its complexity on is **what happens when a call goes wrong**:
 
-```
-caller ──req──▶  handler        the request, re-sent until the handler shows life
-       ◀──hb───                 heartbeat — the first one means "accepted"
-       ◀──prg─── (×N)           progress — advisory, never acknowledged
-       ◀──res──                 the single final result — re-sent until acked
-       ──rak──▶                 result-acknowledgement stops the re-sends
-       (──cnl──▶)               cancel, any time before the result arrives
-```
+- **Liveness, not a stopwatch.** *Nobody answered* (`$noAck`), *it accepted and
+  then went silent* (`$executionStale`) and *it ran too long*
+  (`$executionTimeout`) are three distinct outcomes, driven by per-execution
+  heartbeats — so a slow job is never mistaken for a dead device, and a dead
+  device is never reported as "still working".
+- **Reliability the protocol earns itself, at QoS 0.** Requests are re-sent until
+  the other side shows a sign of life; results are re-sent until acknowledged;
+  duplicates are recognized and dropped on both sides, with tombstones. That
+  yields at-most-once execution — *at most once per handler process lifetime, for
+  as long as the handler retains dedup/tombstone state for that command id* — and
+  the residual cases are written down in
+  [§9 of the spec](docs/protocol.md#9-reliability-properties-and-residual-caveats),
+  not papered over.
+- **Cancellation that reaches the running handler.** Changing your mind puts a
+  real cancel on the wire and the handler's execution is told, rather than the
+  caller quietly giving up locally.
+- **The same protocol down to a microcontroller.** The C++ build is statically
+  allocated, uses no exceptions or RTTI and is driven from your `loop()`; none of
+  the four languages takes a dependency on an MQTT client. Parley needs only MQTT
+  3.1.1 ([spec §2](docs/protocol.md#2-transport-assumptions)), so it runs on the
+  3.1.1-era client stacks that are still the norm on microcontrollers — no MQTT 5
+  broker or client required.
 
-The two roles are a **commander** (the caller) and a **command handler** (the
-callee), and they're shaped the same in every language.
-
-The full contract — the state machines, the timers and their defaults, the error
-codes, the exact JSON — is the normative spec:
-**[`docs/protocol.md`](docs/protocol.md)**.
-
-## A quick look
+Also here: advisory progress streaming, six built-in error codes alongside your
+own typed ones, and no build step — types are bound with your language's own
+generics, templates and type hints, so there is no schema compiler and no code
+generation. Parley never opens the connection and never holds your broker
+credentials or TLS material.
 
 Here is a whole `backup` command in TypeScript — a handler that serves it and a
-commander that calls it. (Python, C#, and C++ versions of this exact scenario are
-in [`examples/`](examples/).)
+commander that calls it. (The Python and C# versions of this exact scenario are
+in [`examples/`](examples/), and the C++ one ships with the package in
+[`cpp/examples/`](cpp/examples/).)
 
 ```ts
 import {
@@ -134,21 +94,49 @@ else if (result.error.custom === 'diskFull') console.log('out of space');
 else console.log(`failed: ${result.error.code}`);
 ```
 
+*A "parley" is a conversation between two sides to reach agreement — the shape of
+a request and its reply.*
+
+## How it works
+
+A **command** (say, `backup`) is defined by **four topic strings that you
+choose** — Parley imposes no naming scheme, so your broker's access rules stay
+entirely in your hands:
+
+| Topic (you name it) | Direction | Carries |
+|---|---|---|
+| `request` | caller → handler | the request, the result-acknowledgement, and cancel |
+| `heartbeat` | handler → caller | "I'm alive and working on it" |
+| `progress` | handler → caller | optional progress updates |
+| `result` | handler → caller | the single final answer |
+
+Every message is a small JSON object carrying a command id, so many calls can
+share the same four topics and each side sorts them out by id. A whole call looks
+like this:
+
+```
+caller ──req──▶  handler        the request, re-sent until the handler shows life
+       ◀──hb───                 heartbeat — the first one means "accepted"
+       ◀──prg─── (×N)           progress — advisory, never acknowledged
+       ◀──res──                 the single final result — re-sent until acked
+       ──rak──▶                 result-acknowledgement stops the re-sends
+       (──cnl──▶)               cancel, any time before the result arrives
+```
+
+The two roles are a **commander** (the caller — the invoker) and a **command
+handler** (the callee — the executor), and they're shaped the same in every
+language.
+
+The full contract — the state machines, the timers and their defaults, the error
+codes, the exact JSON — is the normative spec:
+**[`docs/protocol.md`](docs/protocol.md)**.
+
 ## Using the library
 
-At **v1.0** the four libraries ship on the standard registries — one lockstep
-version each release. Install the one you need (the names differ by ecosystem
-because the bare `parley` was taken on npm and PyPI):
-
-| Ecosystem | Install | Package name |
-|---|---|---|
-| npm | `npm install parley-mqtt` | `parley-mqtt` |
-| PyPI | `pip install parley-mqtt` | `parley-mqtt` (imports as `parley`) |
-| NuGet | `dotnet add package Parley.Mqtt` | `Parley.Mqtt` (assembly `Parley`) |
-| PlatformIO | `pio pkg install -l "ParleyMqtt"` | `ParleyMqtt` |
-
-Each detailed example lives in [`examples/`](examples/); a taste of each idiom
-follows.
+At **v1.0** the four libraries ship on the standard registries at one lockstep
+version each release (the names differ by ecosystem because the bare `parley` was
+taken on npm and PyPI — see the install table above). Each detailed example lives
+in [`examples/`](examples/); a taste of each idiom follows.
 
 ### TypeScript / JavaScript → [`examples/js/`](examples/js/)
 
@@ -232,6 +220,56 @@ ParleyCallHandle handle = commander.execute(req, onComplete, &backupCall);
 // in loop():  mqtt.loop();  commander.tick(millis());   // ... commander.cancel(handle) to cancel
 ```
 
+## When not to use Parley
+
+Parley is one shape, and it is not the right one for every job. Each case below
+states the *need*; follow the pointer and judge for yourself — and see
+[`docs/comparison.md`](docs/comparison.md) for what I was able to verify about
+each.
+
+- **You need generated client/server stubs from an IDL or schema.** Parley has no
+  code generation on purpose; if you want it, the Azure IoT Operations SDKs and
+  joynr are worth evaluating.
+- **You need several interchangeable workers to share one command queue.** Parley
+  pairs one caller with one handler per command: every handler subscribed to a
+  request topic admits and runs the request it sees. Horizontal scaling of
+  handlers is a broker-side load-balancing question, and Parley does not answer
+  it.
+- **You are JavaScript-only and want chunked or streaming transfer.** Parley's
+  progress messages are small advisory updates, not a data stream; if you want
+  streams, MQTT+ is worth evaluating.
+- **You are already on a platform that ships its own RPC.** If your devices and
+  services live inside one vendor's edge platform, its native command mechanism
+  will integrate with the rest of that platform in ways an independent library
+  cannot.
+- **Your whole fleet is MQTT 5 and you want the broker's own request/response.**
+  MQTT 5 carries Response Topic and Correlation Data as protocol properties; if
+  that is all you need, a thin wrapper over your MQTT client may be enough.
+
+## Related projects
+
+Other work in this space, each described **in its own words** so that a summary
+of it is theirs rather than mine. For what I could and could not verify about
+each, see [`docs/comparison.md`](docs/comparison.md).
+
+- [**Azure IoT Operations SDKs**](https://github.com/Azure/iot-operations-sdks) —
+  describes itself as "SDKs to support the Azure IoT Operations developer
+  experience".
+- [**joynr**](https://github.com/bmwcarit/joynr) — describes itself as "a
+  web-based communication framework for Java, C++, and JavaScript applications
+  wanting to interact with other applications, no matter whether they're deployed
+  on consumer devices, vehicles, backend infrastructure or in the cloud".
+- [**VRPC**](https://github.com/heisenware/vrpc-js) — describes itself as letting
+  you "call Node.js, C++, Python, and Arduino classes across any network as if
+  they were local objects".
+- [**MQTT+**](https://github.com/rse/mqtt-plus) — describes itself as "a
+  companion add-on API for the TypeScript/JavaScript API MQTT.js, designed to
+  extend MQTT with higher-level communication patterns while preserving full type
+  safety".
+- [**Sparkplug**](https://github.com/eclipse-sparkplug/sparkplug) — describes
+  itself as "a specification for MQTT enabled devices and applications to send and
+  receive messages in a stateful way".
+
 ## Documentation
 
 | Document | What it is |
@@ -241,13 +279,15 @@ ParleyCallHandle handle = commander.execute(req, onComplete, &backupCall);
 | [`docs/testing.md`](docs/testing.md) | The three-layer testing strategy and the language-neutral test artifacts. |
 | [`docs/decisions.md`](docs/decisions.md) | Dated log of *why* the design looks the way it does, and what was rejected. |
 | [`docs/conformance/`](docs/conformance/) | The shared conformance vectors — 41 JSON scenarios every language replays. |
+| [`docs/comparison.md`](docs/comparison.md) | A dated survey of request/response over MQTT — what I could verify about the alternatives, with sources. |
 
 ## Project layout
 
 ```
 README.md     this file
 LICENSE       MIT
-docs/         protocol.md (normative) · design.md · testing.md · decisions.md · conformance/
+docs/         protocol.md (normative) · design.md · testing.md · decisions.md ·
+              comparison.md · conformance/
 csharp/       C# / .NET reference library (+ tests)
 js/           TypeScript / JS reference library (+ tests)
 python/       Python / asyncio reference library (+ tests)

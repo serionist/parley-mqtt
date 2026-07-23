@@ -6,7 +6,7 @@
     <AssemblyName>Parley</AssemblyName>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsAotCompatible Condition="'$(TargetFramework)' != 'netstandard2.0'">true</IsAotCompatible>
-    <Description>Request/response RPC over MQTT — the transport-free protocol core (C# reference implementation).</Description>
+    <Description>Request/response RPC over MQTT (MQTT RPC / request-reply): call a typed command on another service or device over the MQTT broker you already share, stream progress, cancel it, and get one typed result back. Distinguishes "nobody answered" from "it accepted then went silent" from "it ran too long" via per-execution heartbeats, and gives at-most-once execution even at QoS 0 through retry, result-acknowledgement and two-sided deduplication. Transport-free: no MQTT-client dependency, no code generation — you supply a live connection through a small adapter. C# reference implementation of the Parley v1 wire protocol, which is also implemented in TypeScript/JS, Python and C++ (ESP32/Arduino).</Description>
   </PropertyGroup>
 
   <!--
@@ -27,7 +27,7 @@
     <RepositoryUrl>https://github.com/serionist/parley-mqtt</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageTags>mqtt;rpc;request-response;iot;esp32;protocol;messaging</PackageTags>
+    <PackageTags>mqtt;rpc;mqtt-rpc;request-response;request-reply;remote-procedure-call;iot;protocol;messaging;esp32;dotnet;aot</PackageTags>
     <PackageReleaseNotes>https://github.com/serionist/parley-mqtt/blob/main/CHANGELOG.md</PackageReleaseNotes>
     <!-- SourceLink / deterministic-build knobs. ContinuousIntegrationBuild is set true only in CI. -->
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

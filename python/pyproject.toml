@@ -8,27 +8,49 @@ build-backend = "hatchling.build"
 [project]
 name = "parley-mqtt"
 version = "1.0.0"
-description = "Request/response RPC over MQTT — the Python (asyncio) reference implementation of Parley protocol v1."
+description = "Request/response RPC over MQTT (MQTT RPC / request-reply): typed commands with progress, cancellation, liveness heartbeats and at-most-once delivery. The Python (asyncio) reference implementation of Parley protocol v1."
 requires-python = ">=3.10"
 readme = "README.md"
 # PEP 639: SPDX license expression + license files. Do NOT also carry a `License ::` classifier —
 # the two are mutually exclusive under Metadata 2.4 and modern build/publish tooling rejects the combo.
 license = "MIT"
 license-files = ["LICENSE"]
-keywords = ["mqtt", "rpc", "asyncio", "request-response", "iot"]
+keywords = [
+  "mqtt",
+  "rpc",
+  "mqtt-rpc",
+  "request-response",
+  "request-reply",
+  "remote-procedure-call",
+  "iot",
+  "protocol",
+  "messaging",
+  "esp32",
+  "asyncio",
+  "parley",
+]
 authors = [{ name = "The Parley Authors" }]
+# Every entry below is verified against `trove_classifiers.sorted_classifiers` by the gate-pack job
+# in .github/workflows/ci.yml; `python -m build` (hatchling) is what actually rejects a bad one.
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Framework :: AsyncIO",
   "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Implementation :: CPython",
   "Topic :: Communications",
+  "Topic :: Home Automation",
   "Topic :: Internet",
+  "Topic :: Software Development :: Embedded Systems",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: System :: Distributed Computing",
+  "Topic :: System :: Networking",
   "Typing :: Typed",
 ]
 # Zero required runtime dependencies in core — bring your own MQTT client via a transport adapter.
@@ -47,6 +69,7 @@ Homepage = "https://github.com/serionist/parley-mqtt"
 Repository = "https://github.com/serionist/parley-mqtt"
 Issues = "https://github.com/serionist/parley-mqtt/issues"
 Documentation = "https://github.com/serionist/parley-mqtt/blob/main/docs/protocol.md"
+Changelog = "https://github.com/serionist/parley-mqtt/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/parley"]

@@ -1,5 +1,6 @@
 # ParleyMqtt
 
+[![CI](https://img.shields.io/github/actions/workflow/status/serionist/parley-mqtt/ci.yml?branch=main&event=push&label=CI)](https://github.com/serionist/parley-mqtt/actions/workflows/ci.yml)
 [![PlatformIO Registry](https://badges.registry.platformio.org/packages/serionist/library/ParleyMqtt.svg)](https://registry.platformio.org/libraries/serionist/ParleyMqtt)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/serionist/parley-mqtt/blob/main/LICENSE)
 

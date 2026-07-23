@@ -1,9 +1,10 @@
 {
   "name": "ParleyMqtt",
   "version": "1.0.0",
-  "description": "Request/response RPC over MQTT for ESP32/Arduino — statically allocated, no-exceptions, tick-driven. Commander + handler protocol core over a consumer-supplied MQTT transport adapter and an ArduinoJson codec.",
-  "keywords": "mqtt, rpc, esp32, arduino, request-response, parley",
+  "description": "Request/response RPC over MQTT (MQTT RPC / request-reply) for ESP32/Arduino: call a typed command on another device or service and get one typed result back, with progress, cancellation and liveness heartbeats. Statically allocated, no exceptions or RTTI, tick-driven from loop(); needs only MQTT 3.1.1 and no MQTT-client dependency. Commander + handler protocol core over a consumer-supplied transport adapter and an ArduinoJson codec — one of four parallel implementations of the Parley v1 wire protocol (C++, C#, Python, TypeScript/JS).",
+  "keywords": "mqtt, rpc, mqtt-rpc, request-response, request-reply, remote-procedure-call, esp32, arduino, embedded, iot, protocol, parley",
   "license": "MIT",
+  "homepage": "https://github.com/serionist/parley-mqtt",
   "repository": {
     "type": "git",
     "url": "https://github.com/serionist/parley-mqtt.git"
