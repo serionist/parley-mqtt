@@ -6,7 +6,10 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   {
     // Replacement for .eslintignore.
-    ignores: ['dist/**', 'node_modules/**'],
+    // testpeer/ is the e2e interop harness, not shipped code: it is exercised end-to-end by
+    // the docker matrix rather than type-linted here (it has never been under a tsconfig
+    // project). Linting what ships — src/ and test/ — is the gate that matters.
+    ignores: ['dist/**', 'node_modules/**', 'testpeer/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
