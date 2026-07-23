@@ -23,12 +23,12 @@
     <Product>Parley</Product>
     <Copyright>Copyright (c) 2026 The Parley Authors</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/serionist/parley</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/serionist/parley</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/serionist/parley-mqtt</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/serionist/parley-mqtt</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>mqtt;rpc;request-response;iot;esp32;protocol;messaging</PackageTags>
-    <PackageReleaseNotes>https://github.com/serionist/parley/blob/main/CHANGELOG.md</PackageReleaseNotes>
+    <PackageReleaseNotes>https://github.com/serionist/parley-mqtt/blob/main/CHANGELOG.md</PackageReleaseNotes>
     <!-- SourceLink / deterministic-build knobs. ContinuousIntegrationBuild is set true only in CI. -->
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>

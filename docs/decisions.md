@@ -262,7 +262,7 @@ only.
 ## 2026-07-22 — Package identity, v1.0.0 lockstep, and OIDC-first publishing
 
 **Decision:** publish all four libraries at **v1.0.0**, one lockstep version per release, from the
-public repo `github.com/serionist/parley`, under names that survive the taken bare `parley`:
+public repo `github.com/serionist/parley-mqtt`, under names that survive the taken bare `parley`:
 **npm `parley-mqtt`**, **PyPI `parley-mqtt`** (import package stays `parley`), **NuGet `Parley.Mqtt`**
 (assembly/namespace stay `Parley`), **PlatformIO `ParleyMqtt`**. MIT, © The Parley Authors. v1.0.0
 is a semver + wire-stability commitment (protocol frozen at `v:1`; breaking changes = major bump).
@@ -299,7 +299,7 @@ exclusive under Metadata 2.4 and modern tooling rejects the combination. Status 
 
 **Arduino Library Manager deferred:** the Library Manager requires the library at the **root** of a
 registered repo; a monorepo subdir does not qualify. v1 ships to the PlatformIO Registry (which
-packs from `cpp/`); an automated single-library mirror repo (`serionist/parley-cpp`) for the
+packs from `cpp/`); an automated single-library mirror repo (`serionist/parley-mqtt-cpp`) for the
 Arduino LM is a **follow-up**, not built now.
 
 **Supply chain:** every third-party GitHub Action is **SHA-pinned** to a resolved commit (annotated

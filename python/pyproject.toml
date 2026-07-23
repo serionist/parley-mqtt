@@ -43,10 +43,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/serionist/parley"
-Repository = "https://github.com/serionist/parley"
-Issues = "https://github.com/serionist/parley/issues"
-Documentation = "https://github.com/serionist/parley/blob/main/docs/protocol.md"
+Homepage = "https://github.com/serionist/parley-mqtt"
+Repository = "https://github.com/serionist/parley-mqtt"
+Issues = "https://github.com/serionist/parley-mqtt/issues"
+Documentation = "https://github.com/serionist/parley-mqtt/blob/main/docs/protocol.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/parley"]

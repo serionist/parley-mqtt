@@ -4,14 +4,14 @@
   "description": "Request/response RPC over MQTT — TypeScript/JS reference implementation of the Parley v1 protocol.",
   "license": "MIT",
   "author": "The Parley Authors",
-  "homepage": "https://github.com/serionist/parley/tree/main/js#readme",
+  "homepage": "https://github.com/serionist/parley-mqtt/tree/main/js#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/serionist/parley.git",
+    "url": "git+https://github.com/serionist/parley-mqtt.git",
     "directory": "js"
   },
   "bugs": {
-    "url": "https://github.com/serionist/parley/issues"
+    "url": "https://github.com/serionist/parley-mqtt/issues"
   },
   "keywords": [
     "mqtt",

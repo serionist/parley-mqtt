@@ -36,4 +36,4 @@ reference libraries are semver-stable from here (a breaking change means a new m
 - Arduino Library Manager listing is deferred to a follow-up single-library mirror repo (the
   Library Manager requires the library at a repo root); PlatformIO ships now.
 
-[1.0.0]: https://github.com/serionist/parley/releases/tag/v1.0.0
+[1.0.0]: https://github.com/serionist/parley-mqtt/releases/tag/v1.0.0

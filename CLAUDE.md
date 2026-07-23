@@ -14,7 +14,7 @@ redelivery-dedup over the wire (needs persistent sessions; future work).
 
 **Publishing is wired for v1.0.0 (lockstep):** npm `parley-mqtt` · PyPI `parley-mqtt` (module
 stays `parley`) · NuGet `Parley.Mqtt` (assembly stays `Parley`) · PlatformIO `ParleyMqtt`, from
-`github.com/serionist/parley` via a tag-triggered GitHub Actions release workflow using OIDC
+`github.com/serionist/parley-mqtt` via a tag-triggered GitHub Actions release workflow using OIDC
 trusted publishing (runbook: [`docs/publishing.md`](docs/publishing.md)). The first push + the
 first `v1.0.0` tag are user-gated (one-time registry setup required). Next candidates: PR-CI for
 day-to-day development, reference adapter packages, the Arduino Library Manager mirror.

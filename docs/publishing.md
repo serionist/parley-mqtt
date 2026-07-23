@@ -31,7 +31,7 @@ tag are marked **(pre-tag)**.
 
 ### 0. The GitHub repository (pre-tag)
 
-1. Create a **public** repo `github.com/serionist/parley`. (The remote `origin` is already set in
+1. Create a **public** repo `github.com/serionist/parley-mqtt`. (The remote `origin` is already set in
    this working copy — `git remote -v` to confirm.)
 2. Push `main`. **The first push publishes the source publicly** — make sure you intend that.
 3. Suggested branch protection on `main`: require a pull request before merging, require the status
@@ -51,7 +51,7 @@ publish. No secret is ever stored.
 2. Fill in exactly:
    - **PyPI Project Name:** `parley-mqtt`
    - **Owner:** `serionist`
-   - **Repository name:** `parley`
+   - **Repository name:** `parley-mqtt`
    - **Workflow name:** `release.yml`
    - **Environment name:** *(leave blank, unless you set up the `release` environment above)*
 3. Save.
@@ -67,7 +67,7 @@ need to exist first.
 
 1. Log in to <https://www.nuget.org> → your username → **Trusted Publishing** → add a policy:
    - **Repository Owner:** `serionist`
-   - **Repository:** `parley`
+   - **Repository:** `parley-mqtt`
    - **Workflow File:** `release.yml`  *(file name only — no `.github/workflows/` prefix)*
    - **Environment:** *(leave blank, unless using the `release` environment)*
 2. Add a repo secret **`NUGET_USER`** = your nuget.org account **username** (the profile name, **not**
@@ -111,7 +111,7 @@ keyless. The workflow's npm job is **dual-path** and needs no change between the
 4. On npmjs, open the now-existing package → **Settings → Trusted Publishers** → add a GitHub Actions
    publisher:
    - **Organization or user:** `serionist`
-   - **Repository:** `parley`
+   - **Repository:** `parley-mqtt`
    - **Workflow filename:** `release.yml`
    - **Environment:** *(blank, unless using `release`)*
 5. **Delete the `NPM_TOKEN` repo secret and revoke the token on npmjs.**

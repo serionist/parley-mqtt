@@ -6,12 +6,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/serionist/parley.git"
+    "url": "https://github.com/serionist/parley-mqtt.git"
   },
   "authors": [
     {
       "name": "The Parley Authors",
-      "url": "https://github.com/serionist/parley",
+      "url": "https://github.com/serionist/parley-mqtt",
       "maintainer": true
     }
   ],

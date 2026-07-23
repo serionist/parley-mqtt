@@ -41,11 +41,11 @@ else:
 
 ## Documentation
 
-- **Repository:** <https://github.com/serionist/parley>
-- **The wire protocol (normative):** <https://github.com/serionist/parley/blob/main/docs/protocol.md>
-- **Worked Python example:** <https://github.com/serionist/parley/tree/main/examples/python>
-- **Design notes:** <https://github.com/serionist/parley/blob/main/docs/design.md>
+- **Repository:** <https://github.com/serionist/parley-mqtt>
+- **The wire protocol (normative):** <https://github.com/serionist/parley-mqtt/blob/main/docs/protocol.md>
+- **Worked Python example:** <https://github.com/serionist/parley-mqtt/tree/main/examples/python>
+- **Design notes:** <https://github.com/serionist/parley-mqtt/blob/main/docs/design.md>
 
 ## License
 
-[MIT](https://github.com/serionist/parley/blob/main/LICENSE) © The Parley Authors.
+[MIT](https://github.com/serionist/parley-mqtt/blob/main/LICENSE) © The Parley Authors.
