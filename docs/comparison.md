@@ -20,10 +20,10 @@ never be edited.
 | Project | Languages it documents | MQTT version | IDL / codegen | Liveness of an already-accepted call | Cancellation on the wire | Progress / streaming | Runs on an MCU |
 |---|---|---|---|---|---|---|---|
 | **Parley** | C#, TypeScript/JS, Python, C++ ([`README.md`](../README.md)) | 3.1.1 or later; uses no MQTT 5 features ([spec §2](protocol.md#2-transport-assumptions)) | none — types bound with each language's own generics/templates/hints | per-execution heartbeats; `$noAck`, `$executionStale` and `$executionTimeout` are three distinct outcomes ([spec §5](protocol.md#5-error-codes)) | yes — `cnl` on the request topic, delivered to the running handler ([spec §6, C7](protocol.md#6-commander-behavior)) | advisory `prg` messages, never acknowledged ([spec §7](protocol.md#7-handler-behavior)) | yes — statically allocated C++ core, no exceptions/RTTI |
-| **MQTT 5 request/response** (the broker feature itself) | n/a — a protocol feature, not a library | **MQTT 5 required** — Response Topic and Correlation Data are v5 properties ([§3.1.3.2.6][mqtt5-rt], [§4.10][mqtt5-rr]) | n/a | out of scope — §4.10 defines three properties and leaves the interaction to the application ([§4.10][mqtt5-rr]) | out of scope — as above ([§4.10][mqtt5-rr]) | out of scope — as above ([§4.10][mqtt5-rr]) | depends entirely on your client stack |
-| **Azure IoT Operations SDKs** | .NET, Go, Rust ([README][aio]) | QoS 1 with persistent sessions ([RPC protocol][aio-rpc]) | yes — a protocol compiler generates client libraries and server stubs from a DTDL model ([components][aio-comp]) | not documented in the RPC protocol reference ([RPC protocol][aio-rpc]) | not documented in the RPC protocol reference ([RPC protocol][aio-rpc]) | explicitly out of scope: *"It does not including streaming, sending commands to multiple receivers, etc."* ([RPC protocol][aio-rpc]) | not documented |
+| **MQTT 5 request/response** (the broker feature itself) | n/a — a protocol feature, not a library | **MQTT 5 required** — Response Topic and Correlation Data are v5 properties (§3.3.2.3.5 and §3.3.2.3.6 on a PUBLISH, per [§4.10][mqtt5-rr]) | n/a | out of scope — §4.10 defines three properties and leaves the interaction to the application ([§4.10][mqtt5-rr]) | out of scope — as above ([§4.10][mqtt5-rr]) | out of scope — as above ([§4.10][mqtt5-rr]) | depends entirely on your client stack |
+| **Azure IoT Operations SDKs** | .NET, Go, Rust ([README][aio]) | QoS 1 with persistent sessions ([RPC protocol][aio-rpc]) | yes — a protocol compiler generates client libraries and server stubs from a DTDL model ([components][aio-comp]) | not documented in the RPC protocol reference ([RPC protocol][aio-rpc]) | not documented in the RPC protocol reference ([RPC protocol][aio-rpc]) | documented as not yet included: *"It does not including streaming, sending commands to multiple receivers, etc. Those will be added soon."* ([RPC protocol][aio-rpc]) | not documented |
 | **joynr** | Java, C++, JavaScript ([README][joynr]) | transport-agnostic — MQTT is one of several transports ([README][joynr]) | yes — Franca IDL models and a code generator ([README][joynr]) | not documented in the material I read ([README][joynr]) | not documented in the material I read ([README][joynr]) | not documented in the material I read ([README][joynr]) | not documented |
-| **VRPC** | Node.js, C++, Python, Arduino ([README][vrpc]) | *"They use the MQTT 3.11 standard"* ([protocol reference][vrpc-proto]) | none — it adapts existing classes directly ([README][vrpc]) | **not documented in its protocol reference; client source not audited** ([protocol reference][vrpc-proto]) | **not documented in its protocol reference; client source not audited** ([protocol reference][vrpc-proto]) | **not documented in its protocol reference; client source not audited** ([protocol reference][vrpc-proto]) | an Arduino implementation exists ([vrpc-arduino][vrpc-arduino]) |
+| **VRPC** | Node.js, C++, Python, Arduino ([README][vrpc]) | *"They use the MQTT 3.11 standard"* ([protocol reference][vrpc-proto]) | none — it adapts existing classes directly ([README][vrpc]) | **not documented in its protocol reference; client source not audited** ([protocol reference][vrpc-proto]) | **not documented in its protocol reference; client source not audited** ([protocol reference][vrpc-proto]) | yes — continuous callbacks/events are encoded on the wire (`__f__<method>-<index>-<event\|invokeId>`) ([protocol reference][vrpc-proto]); the README describes proxying `EventEmitter` instances ([README][vrpc]) | an Arduino implementation exists ([vrpc-arduino][vrpc-arduino]) |
 | **MQTT+** | TypeScript/JavaScript, as an add-on to MQTT.js ([README][mqttplus]) | not documented in the material I read ([README][mqttplus]) | none — TypeScript types ([README][mqttplus]) | not documented in the material I read ([README][mqttplus]) | not documented in the material I read ([README][mqttplus]) | yes — it lists stream-based sink-push and source-fetch patterns alongside RPC-style service calls ([README][mqttplus]) | not documented |
 | **Sparkplug** | specification + TCK; many independent implementations ([repository][sparkplug]) | — *(state/telemetry, not RPC; listed because it comes up in the same searches)* | metric definitions, not RPC stubs | device/application birth-death lifecycle ([repository][sparkplug]) | n/a | n/a | widely implemented on devices |
 
@@ -64,7 +64,9 @@ and found **not archived** on that date.
 - **MQTT v5.0** — OASIS Standard. [Specification][mqtt5]. Request/Response is §4.10: *"Some
   applications or standards might wish to run a Request/Response interaction over MQTT. This version
   of MQTT includes three properties that can be used for this purpose"* ([§4.10][mqtt5-rr]);
-  Response Topic is §3.1.3.2.6 ([here][mqtt5-rt]), Correlation Data §3.1.3.2.7.
+  On a PUBLISH these are §3.3.2.3.5 (Response Topic) and §3.3.2.3.6 (Correlation Data), as
+  [§4.10][mqtt5-rr] itself cross-references; §3.1.3.2.6/§3.1.3.2.7 are the corresponding *Will*
+  properties, which is a different thing.
 - **Azure IoT Operations SDKs** — describes itself as *"SDKs to support the Azure IoT Operations
   developer experience"* ([README][aio]). The protocol compiler is *"a command line tool distributed
   as a NuGet package. It generates client libraries and server stubs in multiple languages from a
@@ -81,8 +83,8 @@ and found **not archived** on that date.
   Call) allows you to call Node.js, C++, Python, and Arduino classes across any network as if they
   were local objects"* ([README][vrpc]). Its protocol reference states *"All VRPC agents and clients
   are MQTT clients to a single logical broker. They use the MQTT 3.11 standard to realize all RPC
-  functionality"* ([protocol reference][vrpc-proto]). **The retry, liveness, cancellation and
-  progress cells for VRPC say "not documented in its protocol reference" because that is exactly
+  functionality"* ([protocol reference][vrpc-proto]). **The retry, liveness and cancellation cells
+  for VRPC say "not documented in its protocol reference" because that is exactly
   what I checked — I did not audit the client source, and the behavior may well exist in code.**
   The Arduino implementation is a separate repository ([vrpc-arduino][vrpc-arduino]).
 - **MQTT+** — describes itself as *"a companion add-on API for the TypeScript/JavaScript API MQTT.js,
@@ -92,7 +94,8 @@ and found **not archived** on that date.
 - **Sparkplug** — describes itself as *"a specification for MQTT enabled devices and applications to
   send and receive messages in a stateful way"* ([repository][sparkplug]); the TCK is maintained in
   the same repository ([`tck/`][sparkplug-tck]).
-- **PubSubClient** — the MQTT client most Arduino/ESP32 material reaches for. Its README states:
+- **PubSubClient** — an MQTT client much Arduino/ESP32 material reaches for. Its maintainer marked
+  it unmaintained in 2026, which does not change the version point below. Its README states:
   *"The client uses MQTT 3.1.1 by default. It can be changed to use MQTT 3.1 by changing value of
   `MQTT_VERSION` in `PubSubClient.h`"* ([README][pubsubclient]). This is the concrete reason
   Parley's "MQTT 3.1.1 is enough" property matters on a microcontroller: a request/response design
@@ -100,7 +103,6 @@ and found **not archived** on that date.
 
 [mqtt5]: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html
 [mqtt5-rr]: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc464564287
-[mqtt5-rt]: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc493772019
 [aio]: https://github.com/Azure/iot-operations-sdks
 [aio-comp]: https://github.com/Azure/iot-operations-sdks/blob/main/doc/components.md
 [aio-rpc]: https://github.com/Azure/iot-operations-sdks/blob/main/doc/reference/rpc-protocol.md

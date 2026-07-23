@@ -231,13 +231,13 @@ each.
   code generation on purpose; if you want it, the Azure IoT Operations SDKs and
   joynr are worth evaluating.
 - **You need several interchangeable workers to share one command queue.** Parley
-  pairs one caller with one handler per command: every handler subscribed to a
+  pairs one handler with a command's topic set: every handler subscribed to a
   request topic admits and runs the request it sees. Horizontal scaling of
   handlers is a broker-side load-balancing question, and Parley does not answer
   it.
-- **You are JavaScript-only and want chunked or streaming transfer.** Parley's
-  progress messages are small advisory updates, not a data stream; if you want
-  streams, MQTT+ is worth evaluating.
+- **You want chunked or streaming transfer.** Parley's progress messages are
+  small advisory updates, not a data stream; MQTT+ (TypeScript/JS) and VRPC
+  (which proxies callbacks and event emitters) are both worth evaluating.
 - **You are already on a platform that ships its own RPC.** If your devices and
   services live inside one vendor's edge platform, its native command mechanism
   will integrate with the rest of that platform in ways an independent library

@@ -71,6 +71,9 @@ jobs:
   # 2. Gates — the four language suites + the e2e interop matrix. Publishing is blocked unless all
   #    of these are green.
   # ---------------------------------------------------------------------------------------------
+  # NOTE: these gate jobs are duplicated in ci.yml (and gate-e2e in e2e.yml) so the badge
+  # reports a deterministic workflow. Keep them in step with those files, and vice versa.
+  # Follow-up: extract into a reusable workflow_call workflow so there is only one copy.
   gate-dotnet:
     needs: verify
     runs-on: ubuntu-latest

@@ -29,7 +29,8 @@ service can all call each other over the broker they already share. `ParleyMqtt`
   function pointers plus a `void*`. Driven from your `loop()` with `tick(millis())`.
 - **No MQTT-client dependency.** Parley never opens a connection and never sees your broker
   credentials or TLS material; you hand it a live session through a small transport adapter you
-  write over PubSubClient, AsyncMqttClient, or whatever you already use. It works over MQTT
+  write over AsyncMqttClient, PubSubClient (note: its maintainer marked it unmaintained
+  in 2026), or whatever you already use. It works over MQTT
   3.1.1, so it does not need an MQTT 5 stack.
 - **Three distinct liveness outcomes.** *Nobody answered* (`$noAck`), *it accepted and then went
   silent* (`$executionStale`) and *it ran too long* (`$executionTimeout`) are separate results,
