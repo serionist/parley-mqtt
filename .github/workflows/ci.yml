@@ -1,0 +1,220 @@
+# Parley CI — the deterministic gate.
+#
+# This is the workflow the README's CI badge reports on (`?branch=main&event=push`), so everything
+# in it must be deterministic: the four language suites plus a packaging gate that catches the
+# metadata mistakes you only otherwise find after an immutable registry upload.
+#
+# The over-the-wire docker interop matrix deliberately lives in its OWN workflow (e2e.yml): it is
+# timing-sensitive, pulls images from Docker Hub, and pins an apt package, so a red run there means
+# "the interop environment is broken" — true and actionable, but not something to fold into the
+# primary badge.
+#
+# Security posture: read-only token, every third-party action pinned to a full commit SHA.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Never cancel a run on main: a cancelled conclusion reads as "not passing" on the badge, and the
+# badge is pinned to main pushes. PR runs are superseded freely.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ---------------------------------------------------------------------------------------------
+  # The four language suites.
+  # keep in step with release.yml gates (and vice versa)
+  # ---------------------------------------------------------------------------------------------
+  gate-dotnet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - name: dotnet test (Release; builds netstandard2.0 + net10.0, warnings-as-errors)
+        working-directory: csharp
+        run: dotnet test Parley.sln -c Release --nologo
+
+  gate-node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: npm ci + build + typecheck + lint + test
+        working-directory: js
+        run: |
+          npm ci
+          npm run build
+          npm run typecheck
+          npm run lint
+          npm test
+
+  gate-python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # The advertised floor AND the newest supported interpreter.
+        python-version: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (editable, dev extras) + lint + typecheck + test
+        working-directory: python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          ruff check src tests
+          ruff format --check src tests
+          mypy src
+          pytest -q
+
+  gate-cpp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitize: ["OFF", "ON"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Configure + build + ctest (sanitize=${{ matrix.sanitize }})
+        run: |
+          cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Debug -DPARLEY_SANITIZE=${{ matrix.sanitize }}
+          cmake --build build -j
+          ctest --test-dir build --output-on-failure
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: halt_on_error=1
+
+  # ---------------------------------------------------------------------------------------------
+  # Packaging gate — the four packs plus the lockstep-version check. Registry uploads are
+  # immutable, so every one of these assertions is a mistake that cannot be taken back later.
+  # keep in step with release.yml gates (and vice versa)
+  # ---------------------------------------------------------------------------------------------
+  gate-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: The five manifest versions agree
+        run: scripts/bump-version.sh --check
+
+      - name: NuGet — pack, then assert README, tags and a symbol package
+        run: |
+          set -euo pipefail
+          dotnet pack csharp/src/Parley/Parley.csproj -c Release \
+            -p:ContinuousIntegrationBuild=true -o artifacts
+          ls artifacts/*.snupkg >/dev/null 2>&1 \
+            || { echo "::error::no .snupkg symbol package was produced"; exit 1; }
+          python3 - <<'PY'
+          import glob, re, sys, zipfile
+          nupkg = [p for p in glob.glob("artifacts/*.nupkg")][0]
+          z = zipfile.ZipFile(nupkg)
+          names = z.namelist()
+          print(nupkg + ":")
+          print("\n".join("  " + n for n in sorted(names)))
+          if "README.md" not in names:
+              sys.exit("::error::README.md is missing from the nupkg root")
+          nuspec = [n for n in names if n.endswith(".nuspec")][0]
+          m = re.search(r"<tags>(.*?)</tags>", z.read(nuspec).decode("utf-8"), re.S)
+          if not (m and m.group(1).strip()):
+              sys.exit("::error::PackageTags is empty in the nuspec")
+          print("PackageTags: " + m.group(1).strip())
+          PY
+
+      - name: npm — pack --dry-run, then assert the shipped file list
+        working-directory: js
+        run: |
+          set -euo pipefail
+          npm ci
+          # Build first and pack with --ignore-scripts: the `prepack` build writes to stdout, and
+          # that output would otherwise land in front of the JSON document.
+          npm run build
+          npm pack --dry-run --json --ignore-scripts > pack.json
+          python3 - <<'PY'
+          import json, sys
+          files = {f["path"] for f in json.load(open("pack.json"))[0]["files"]}
+          print("\n".join(sorted(files)))
+          required = {
+              "package.json", "README.md", "LICENSE",
+              "dist/index.js", "dist/index.cjs",
+              "dist/index.d.ts", "dist/index.d.cts",
+          }
+          missing = sorted(required - files)
+          if missing:
+              sys.exit("::error::npm tarball is missing: " + ", ".join(missing))
+          PY
+
+      - name: PyPI — build, validate every classifier, twine --strict, wheel py.typed
+        working-directory: python
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade pip build twine trove-classifiers
+          # `python -m build` is the step that REJECTS an invalid trove classifier (hatchling
+          # validates them); `twine check` does not. The explicit check below is a belt on top,
+          # so that nobody can later "simplify" the real validation away without noticing.
+          python3 -m build
+          python3 - <<'PY'
+          import sys, tomllib
+          from trove_classifiers import sorted_classifiers
+          valid = set(sorted_classifiers)
+          declared = tomllib.load(open("pyproject.toml", "rb"))["project"]["classifiers"]
+          bad = [c for c in declared if c not in valid]
+          for c in declared:
+              print(("  ok  " if c in valid else "  BAD ") + c)
+          if bad:
+              sys.exit("::error::not a registered trove classifier: " + "; ".join(bad))
+          PY
+          twine check --strict dist/*
+          python3 - <<'PY'
+          import glob, sys, zipfile
+          whl = sorted(glob.glob("dist/*.whl"))[0]
+          names = zipfile.ZipFile(whl).namelist()
+          print(whl + ":")
+          print("\n".join("  " + n for n in sorted(names)))
+          if "parley/py.typed" not in names:
+              sys.exit("::error::py.typed is missing from the wheel")
+          PY
+
+      - name: PlatformIO — pack, then assert README and the examples are in the tarball
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade platformio
+          mkdir -p pio-dist
+          (cd cpp && pio pkg pack -o ../pio-dist)
+          tarball=$(ls pio-dist/*.tar.gz | head -1)
+          # List once into a file: `tar ... | grep -q` makes tar die of SIGPIPE, which `pipefail`
+          # then reports as a failed pipeline even when the pattern matched.
+          tar -tzf "$tarball" | sort > pio-files.txt
+          cat pio-files.txt
+          grep -qx 'README.md' pio-files.txt \
+            || { echo "::error::README.md is missing from the PlatformIO tarball"; exit 1; }
+          grep -qx 'LICENSE' pio-files.txt \
+            || { echo "::error::LICENSE is missing from the PlatformIO tarball"; exit 1; }
+          grep -q '^examples/.*\.ino$' pio-files.txt \
+            || { echo "::error::no example sketch in the PlatformIO tarball"; exit 1; }

@@ -1,0 +1,52 @@
+# Parley over-the-wire interop matrix.
+#
+# Deliberately separate from ci.yml. This workflow builds five docker images, runs a real mosquitto
+# broker, and drives all 16 ordered commander x handler language pairs plus the deep disruption and
+# QoS-1 phases. It is timing-sensitive by construction (the driver's AMBER status means "passed only
+# on the retry" and blocks the gate), it pulls base images from Docker Hub, and e2e/Dockerfile.cpp
+# pins an exact apt package version that Debian will eventually rotate out.
+#
+# All of that is worth knowing and worth failing on — but as its own signal. The primary CI badge
+# reports ci.yml, which is deterministic; a red run here honestly says "the interop environment is
+# broken", which is a different and separately actionable statement.
+#
+# Caveat: GitHub disables `schedule` triggers after 60 days without repository activity. Treat a
+# green nightly as something to CONFIRM at release time, never to assume. The release workflow runs
+# this same matrix as a hard gate before publishing.
+#
+# Security posture: read-only token, every third-party action pinned to a full commit SHA.
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Nightly, 04:17 UTC (off the hour — the top of the hour is the busiest scheduling slot).
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel a run on main; this workflow does not run on pull requests at all.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # keep in step with release.yml gates (and vice versa)
+  gate-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Docker interop matrix (16 pairs x 9 scenarios + self-checks + deep + QoS-1)
+        working-directory: e2e
+        run: ./run-matrix.sh ci
+      - name: Upload the per-cell reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-reports
+          path: e2e/reports/*.json
+          if-no-files-found: warn
