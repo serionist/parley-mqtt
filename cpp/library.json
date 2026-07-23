@@ -18,6 +18,9 @@
   "frameworks": "arduino",
   "platforms": "*",
   "headers": "Parley.h",
+  "examples": [
+    "examples/*/*.ino"
+  ],
   "dependencies": [
     {
       "name": "ArduinoJson",
@@ -27,8 +30,11 @@
   "export": {
     "include": [
       "src",
+      "examples",
       "library.json",
-      "library.properties"
+      "library.properties",
+      "README.md",
+      "LICENSE"
     ]
   },
   "build": {

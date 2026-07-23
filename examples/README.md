@@ -5,12 +5,15 @@ command so you can compare them side by side: a `backup` command that takes a
 target, streams progress while it runs, returns how many bytes it wrote, and can
 fail with typed error codes (`diskFull`, `targetUnreachable`).
 
+The C++ one lives with the C++ package (`cpp/examples/`) because PlatformIO and the Arduino IDE
+render a library's examples from inside it; the other three live here.
+
 | Language | File | MQTT client used in the adapter |
 |---|---|---|
 | TypeScript / JS | [`js/backup-example.ts`](js/backup-example.ts) | [mqtt.js](https://github.com/mqttjs/MQTT.js) |
 | Python | [`python/backup_example.py`](python/backup_example.py) | [paho-mqtt](https://github.com/eclipse-paho/paho.mqtt.python) |
 | C# / .NET | [`csharp/BackupExample.cs`](csharp/BackupExample.cs) | [MQTTnet](https://github.com/dotnet/MQTTnet) |
-| C++ / ESP32 | [`cpp/backup_example.ino`](cpp/backup_example.ino) | [PubSubClient](https://github.com/knolleary/pubsubclient) |
+| C++ / ESP32 | [`../cpp/examples/Backup/Backup.ino`](../cpp/examples/Backup/Backup.ino) | [PubSubClient](https://github.com/knolleary/pubsubclient) |
 
 Each file walks through the same five steps: define the message types → write a
 transport adapter over an MQTT client → construct the commander/handler → serve

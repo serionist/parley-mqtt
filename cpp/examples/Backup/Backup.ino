@@ -30,7 +30,7 @@
 
 #include <string.h>
 
-#include "Parley.h" // add the Parley cpp/src tree to your include path
+#include <Parley.h> // from the ParleyMqtt library (lib_deps = serionist/ParleyMqtt)
 
 using namespace parley;
 

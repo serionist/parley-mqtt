@@ -208,7 +208,7 @@ if (result.IsSuccess) Console.WriteLine(result.Value!.BytesWritten);
 else Console.WriteLine(result.Error.Code);
 ```
 
-### C++ / ESP32-Arduino → [`examples/cpp/`](examples/cpp/)
+### C++ / ESP32-Arduino → [`cpp/examples/`](cpp/examples/)
 
 **PlatformIO:** add `ParleyMqtt` to your `lib_deps` (or `pio pkg install -l "ParleyMqtt"`);
 ArduinoJson is pulled in as a dependency. **Arduino IDE / Library Manager:** not
@@ -251,8 +251,9 @@ docs/         protocol.md (normative) · design.md · testing.md · decisions.md
 csharp/       C# / .NET reference library (+ tests)
 js/           TypeScript / JS reference library (+ tests)
 python/       Python / asyncio reference library (+ tests)
-cpp/          C++ / ESP32-Arduino reference library (+ tests)
-examples/     one worked example per language (the same backup command)
+cpp/          C++ / ESP32-Arduino reference library (+ tests, + the packaged examples/)
+examples/     worked examples for C#, JS/TS and Python (the same backup command;
+              the C++ one ships inside the package at cpp/examples/Backup/)
 .claude/      working conventions + skills
 ```
 
