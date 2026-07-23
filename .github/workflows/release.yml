@@ -169,6 +169,12 @@ jobs:
     permissions:
       contents: read
       id-token: write # provenance (both paths) + tokenless trusted publishing
+    env:
+      # `secrets` is NOT available in a step-level `if:` (only `env` is), so the bootstrap
+      # flag is mapped here at job level — where `secrets` IS available. Referencing
+      # secrets.* directly in the step conditions would make BOTH steps mis-evaluate and
+      # the first (bootstrap) release would silently fall into the tokenless path.
+      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # NOTE: no registry-url on setup-node — writing an .npmrc _authToken line with an EMPTY
@@ -183,7 +189,7 @@ jobs:
         working-directory: js
         run: npm ci
       - name: Publish (bootstrap path — first release only, NPM_TOKEN secret set)
-        if: ${{ secrets.NPM_TOKEN != '' }}
+        if: env.HAS_NPM_TOKEN == 'true'
         working-directory: js
         # prepack builds dist/; publishConfig sets access=public + provenance=true (provenance
         # works on the token path because id-token: write is present on this job).
@@ -193,7 +199,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish (steady state — tokenless OIDC trusted publishing)
-        if: ${{ secrets.NPM_TOKEN == '' }}
+        if: env.HAS_NPM_TOKEN != 'true'
         working-directory: js
         # No auth config at all: npm >= 11.5.1 detects the CI OIDC context and performs the
         # trusted-publishing exchange itself; provenance is generated automatically.
