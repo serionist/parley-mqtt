@@ -1,6 +1,6 @@
 {
   "name": "parley-mqtt",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Request/response RPC over MQTT (MQTT RPC / request-reply): typed commands with progress, cancellation, liveness heartbeats and at-most-once delivery. TypeScript/JS reference implementation of the Parley v1 protocol — zero dependencies, bring your own MQTT client.",
   "license": "MIT",
   "author": "The Parley Authors",

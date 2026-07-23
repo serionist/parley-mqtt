@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # (bump-version.sh keeps the five manifests in step) — keep `version = "…"` on one line.
 [project]
 name = "parley-mqtt"
-version = "1.0.0"
+version = "1.0.1"
 description = "Request/response RPC over MQTT (MQTT RPC / request-reply): typed commands with progress, cancellation, liveness heartbeats and at-most-once delivery. The Python (asyncio) reference implementation of Parley protocol v1."
 requires-python = ">=3.10"
 readme = "README.md"
